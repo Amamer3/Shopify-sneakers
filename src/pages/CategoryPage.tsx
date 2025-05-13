@@ -6,14 +6,20 @@ import ProductCard from '../components/ProductCard';
 
 export function CategoryPage() {
   const { category } = useParams<{ category: string }>();
-  const categoryName = category?.charAt(0).toUpperCase() + category?.slice(1);
-  const products = category ? getProductsByCategory(categoryName) : [];
+  
+  // Make sure categoryName is always a string, default to an empty string if undefined
+  const categoryName = category ? category.charAt(0).toUpperCase() + category.slice(1) : '';
+  
+  // Safely get products
+  const products = categoryName ? getProductsByCategory(categoryName) : [];
   
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold">{categoryName} Collection</h1>
-        <p className="text-gray-600 mt-2">Discover our selection of {categoryName.toLowerCase()} sneakers.</p>
+        <p className="text-gray-600 mt-2">
+          Discover our selection of {typeof categoryName === 'string' ? categoryName.toLowerCase() : ''} sneakers.
+        </p>
       </div>
       
       {products.length > 0 ? (
