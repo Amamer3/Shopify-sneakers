@@ -1,6 +1,5 @@
 
 import React, { Suspense } from 'react';
-import { ErrorBoundary } from 'react-error-boundary';
 import { Loader } from 'lucide-react';
 
 // Use React.lazy for code splitting
@@ -29,11 +28,11 @@ const ErrorFallback = () => (
 
 const Index = () => {
   return (
-    <ErrorBoundary FallbackComponent={ErrorFallback}>
+    <React.Fragment>
       <Suspense fallback={<LoadingFallback />}>
         <HomePage />
       </Suspense>
-    </ErrorBoundary>
+    </React.Fragment>
   );
 };
 
