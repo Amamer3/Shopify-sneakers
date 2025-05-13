@@ -1,14 +1,16 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Menu, X, ShoppingCart, User } from 'lucide-react';
+import { Menu, X, ShoppingCart, User, LogIn, UserPlus } from 'lucide-react';
 import { Button } from './ui/button';
 import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
 
 function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { getCartCount } = useCart();
+  const { user, isAuthenticated, logout } = useAuth();
   const cartCount = getCartCount();
   
   return (
@@ -39,17 +41,42 @@ function Navbar() {
         <div className="flex items-center gap-4">
           <ThemeToggle />
           
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            asChild 
-            aria-label="Login"
-            className="hidden md:flex"
-          >
-            <Link to="/">
-              <User className="h-5 w-5" />
-            </Link>
-          </Button>
+          {isAuthenticated ? (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              asChild 
+              aria-label="Profile"
+              className="hidden md:flex"
+            >
+              <Link to="/profile">
+                <User className="h-5 w-5" />
+              </Link>
+            </Button>
+          ) : (
+            <div className="hidden md:flex items-center gap-2">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                asChild
+              >
+                <Link to="/login">
+                  <LogIn className="h-4 w-4 mr-1" />
+                  Login
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <Link to="/signup">
+                  <UserPlus className="h-4 w-4 mr-1" />
+                  Sign Up
+                </Link>
+              </Button>
+            </div>
+          )}
           
           <Button 
             variant="ghost" 
@@ -112,18 +139,62 @@ function Navbar() {
             >
               Trending
             </Link>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex items-center justify-start gap-2"
-              asChild
-              onClick={() => setIsMenuOpen(false)}
-            >
-              <Link to="/">
-                <User className="h-4 w-4" />
-                Login
-              </Link>
-            </Button>
+            
+            {isAuthenticated ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center justify-start gap-2"
+                  asChild
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <Link to="/profile">
+                    <User className="h-4 w-4" />
+                    My Account
+                  </Link>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="flex items-center justify-start gap-2 text-destructive"
+                  onClick={() => {
+                    logout();
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <LogIn className="h-4 w-4" />
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center justify-start gap-2"
+                  asChild
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <Link to="/login">
+                    <LogIn className="h-4 w-4" />
+                    Login
+                  </Link>
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="flex items-center justify-start gap-2"
+                  asChild
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <Link to="/signup">
+                    <UserPlus className="h-4 w-4" />
+                    Sign Up
+                  </Link>
+                </Button>
+              </>
+            )}
           </nav>
         </div>
       )}
