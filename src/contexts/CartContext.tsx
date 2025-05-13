@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { ShoppingCart, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 
 export interface Product {
   id: string;
@@ -27,17 +28,40 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+const CART_STORAGE_KEY = 'sneaker-store-cart';
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    const savedCart = localStorage.getItem('cart');
-    return savedCart ? JSON.parse(savedCart) : [];
+    try {
+      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
+      return savedCart ? JSON.parse(savedCart) : [];
+    } catch (error) {
+      console.error('Failed to parse cart items from localStorage:', error);
+      return [];
+    }
   });
 
   useEffect(() => {
-    localStorage.setItem('cart', JSON.stringify(cartItems));
+    try {
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
+    } catch (error) {
+      console.error('Failed to store cart items in localStorage:', error);
+      toast.error('Failed to save your cart', {
+        description: 'Your cart may not persist when you close the browser',
+        icon: <AlertTriangle className="h-4 w-4" />,
+      });
+    }
   }, [cartItems]);
 
   const addToCart = (product: Product, quantity = 1) => {
+    if (quantity < 1) {
+      toast.error('Invalid quantity', {
+        description: 'Quantity must be at least 1',
+        icon: <AlertTriangle className="h-4 w-4" />,
+      });
+      return;
+    }
+
     setCartItems(prevItems => {
       const existingItemIndex = prevItems.findIndex(item => item.id === product.id);
       
@@ -47,18 +71,35 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           ...updatedItems[existingItemIndex],
           quantity: updatedItems[existingItemIndex].quantity + quantity
         };
-        toast.success('Updated quantity in cart');
+        
+        toast.success('Updated quantity in cart', {
+          description: `${product.name} (${updatedItems[existingItemIndex].quantity}x)`,
+          icon: <CheckCircle2 className="h-4 w-4" />,
+        });
+        
         return updatedItems;
       } else {
-        toast.success('Added to cart');
+        toast.success('Added to cart', {
+          description: `${product.name} (${quantity}x)`,
+          icon: <ShoppingCart className="h-4 w-4" />,
+        });
+        
         return [...prevItems, { ...product, quantity }];
       }
     });
   };
 
   const removeFromCart = (productId: string) => {
+    const itemToRemove = cartItems.find(item => item.id === productId);
+    
     setCartItems(prevItems => prevItems.filter(item => item.id !== productId));
-    toast.success('Removed from cart');
+    
+    if (itemToRemove) {
+      toast.success('Removed from cart', {
+        description: itemToRemove.name,
+        icon: <XCircle className="h-4 w-4" />,
+      });
+    }
   };
 
   const updateQuantity = (productId: string, quantity: number) => {

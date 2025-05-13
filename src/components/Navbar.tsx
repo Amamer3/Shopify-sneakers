@@ -1,89 +1,134 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Menu, X } from 'lucide-react';
-import { useCart } from '../contexts/CartContext';
+import { Menu, X, ShoppingCart, User } from 'lucide-react';
 import { Button } from './ui/button';
+import { useCart } from '../contexts/CartContext';
+import { ThemeToggle } from './ThemeToggle';
 
-export function Navbar() {
-  const { getCartCount } = useCart();
+function Navbar() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { getCartCount } = useCart();
+  const cartCount = getCartCount();
   
   return (
-    <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b">
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="flex items-center">
-            <span className="text-xl font-bold bg-gradient-to-r from-purple-600 to-indigo-600 bg-clip-text text-transparent">SNEAKR</span>
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-16 items-center justify-between">
+        <div className="flex items-center gap-2 md:gap-10">
+          <Link to="/" className="text-xl font-bold flex items-center">
+            <span className="mr-1 bg-primary text-white rounded-md w-8 h-8 flex items-center justify-center font-bold text-lg">S</span>
+            neakerStore
           </Link>
           
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-6">
-            <Link to="/" className="font-medium hover:text-purple-600 transition-colors">Home</Link>
-            <Link to="/men" className="font-medium hover:text-purple-600 transition-colors">Men</Link>
-            <Link to="/women" className="font-medium hover:text-purple-600 transition-colors">Women</Link>
-            <Link to="/trending" className="font-medium hover:text-purple-600 transition-colors">Trending</Link>
-          </div>
-          
-          <div className="hidden md:flex items-center space-x-2">
-            <Link to="/cart">
-              <Button variant="ghost" size="icon" className="relative">
-                <ShoppingCart className="h-5 w-5" />
-                {getCartCount() > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-brand text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {getCartCount()}
-                  </span>
-                )}
-              </Button>
+          <nav className="hidden md:flex gap-6">
+            <Link to="/" className="text-sm font-medium text-foreground/80 transition-colors hover:text-foreground">
+              Home
             </Link>
-          </div>
-          
-          {/* Mobile Menu Button */}
-          <div className="md:hidden flex items-center">
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              aria-label="Toggle menu"
-            >
-              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </Button>
-            
-            <Link to="/cart" className="ml-2">
-              <Button variant="ghost" size="icon" className="relative">
-                <ShoppingCart className="h-5 w-5" />
-                {getCartCount() > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-brand text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {getCartCount()}
-                  </span>
-                )}
-              </Button>
+            <Link to="/men" className="text-sm font-medium text-foreground/80 transition-colors hover:text-foreground">
+              Men
             </Link>
-          </div>
+            <Link to="/women" className="text-sm font-medium text-foreground/80 transition-colors hover:text-foreground">
+              Women
+            </Link>
+            <Link to="/trending" className="text-sm font-medium text-foreground/80 transition-colors hover:text-foreground">
+              Trending
+            </Link>
+          </nav>
         </div>
         
-        {/* Mobile Menu */}
-        {isMenuOpen && (
-          <div className="md:hidden py-4 animate-fade-in">
-            <div className="flex flex-col space-y-4">
-              <Link to="/" className="font-medium py-2 hover:text-purple-600" onClick={() => setIsMenuOpen(false)}>
-                Home
-              </Link>
-              <Link to="/men" className="font-medium py-2 hover:text-purple-600" onClick={() => setIsMenuOpen(false)}>
-                Men
-              </Link>
-              <Link to="/women" className="font-medium py-2 hover:text-purple-600" onClick={() => setIsMenuOpen(false)}>
-                Women
-              </Link>
-              <Link to="/trending" className="font-medium py-2 hover:text-purple-600" onClick={() => setIsMenuOpen(false)}>
-                Trending
-              </Link>
-            </div>
-          </div>
-        )}
+        <div className="flex items-center gap-4">
+          <ThemeToggle />
+          
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            asChild 
+            aria-label="Login"
+            className="hidden md:flex"
+          >
+            <Link to="/">
+              <User className="h-5 w-5" />
+            </Link>
+          </Button>
+          
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            asChild
+            aria-label={`Shopping cart with ${cartCount} items`}
+            className="relative"
+          >
+            <Link to="/cart">
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-primary text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+          </Button>
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+          >
+            {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
-    </nav>
+      
+      {/* Mobile menu */}
+      {isMenuOpen && (
+        <div className="md:hidden border-t border-border">
+          <nav className="flex flex-col p-4 space-y-4 bg-background">
+            <Link 
+              to="/" 
+              className="px-4 py-2 text-foreground hover:bg-muted rounded-md"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Home
+            </Link>
+            <Link 
+              to="/men" 
+              className="px-4 py-2 text-foreground hover:bg-muted rounded-md"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Men
+            </Link>
+            <Link 
+              to="/women" 
+              className="px-4 py-2 text-foreground hover:bg-muted rounded-md"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Women
+            </Link>
+            <Link 
+              to="/trending" 
+              className="px-4 py-2 text-foreground hover:bg-muted rounded-md"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Trending
+            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center justify-start gap-2"
+              asChild
+              onClick={() => setIsMenuOpen(false)}
+            >
+              <Link to="/">
+                <User className="h-4 w-4" />
+                Login
+              </Link>
+            </Button>
+          </nav>
+        </div>
+      )}
+    </header>
   );
-};
+}
 
 export default Navbar;
