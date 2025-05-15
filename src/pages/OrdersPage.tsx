@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuthRequired } from '../hooks/use-auth-required';
 import { 
   Table,
@@ -13,9 +12,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Printer, Download } from 'lucide-react';
+import { useOrders } from '@/contexts/OrderContext';
+import { OrderFilter } from '@/components/OrderFilter';
+import { format } from 'date-fns';
+import { exportToCSV, printOrder } from '@/utils/export';
 
-// Mock order data (will come from backend in real app)
+// Mock order data
 const mockOrders = [
   {
     id: 'ORD-1234',
@@ -44,9 +47,9 @@ const mockOrders = [
 const getStatusColor = (status: string) => {
   switch (status.toLowerCase()) {
     case 'delivered':
-      return 'success';
+      return 'default'; // or 'secondary' if you want a different color
     case 'processing':
-      return 'warning';
+      return 'secondary'; // or 'outline'
     case 'cancelled':
       return 'destructive';
     default:
@@ -56,9 +59,43 @@ const getStatusColor = (status: string) => {
 
 export function OrdersPage() {
   // Protect this route
-  const { isLoading } = useAuthRequired();
+  const { isLoading: authLoading } = useAuthRequired();
+  const { orders, isLoading: ordersLoading, filterOrders, sortOrders } = useOrders();  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedDateRange, setSelectedDateRange] = useState<{ start: Date; end: Date } | null>(null);
+  const [selectedSort, setSelectedSort] = useState<{ by: 'date' | 'total' | 'status'; direction: 'asc' | 'desc' }>({
+    by: 'date',
+    direction: 'desc'
+  });
   
-  if (isLoading) {
+  const handleStatusChange = (status: string) => {
+    setSelectedStatus(status);
+    setSelectedStatus(status);
+  };
+
+  const handleDateRangeChange = (range: { start: Date; end: Date } | null) => {
+    setSelectedDateRange(range);
+  };
+
+  const handleSortChange = (by: 'date' | 'total' | 'status', direction: 'asc' | 'desc') => {
+    setSelectedSort({ by, direction });
+    sortOrders(by, direction);
+  };
+
+  const handleExport = () => {
+    exportToCSV(filteredOrders);
+  };
+
+  const handlePrint = (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (order) {
+      printOrder(order);
+    }
+  };
+
+  // Get filtered orders
+  const filteredOrders = filterOrders(selectedStatus, selectedDateRange);
+  
+  if (authLoading || ordersLoading) {
     return (
       <div className="container mx-auto px-4 py-16 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -68,9 +105,24 @@ export function OrdersPage() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Order History</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Order History</h1>
+        <Button onClick={handleExport} variant="outline">
+          <Download className="mr-2 h-4 w-4" />
+          Export to CSV
+        </Button>
+      </div>
       
-      {mockOrders.length === 0 ? (
+      <OrderFilter
+        onStatusChange={handleStatusChange}
+        onDateRangeChange={handleDateRangeChange}
+        onSortChange={handleSortChange}
+        selectedStatus={selectedStatus}
+        selectedDateRange={selectedDateRange}
+        selectedSort={selectedSort}
+      />
+
+      {filteredOrders.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-muted-foreground mb-4">You haven't placed any orders yet.</p>
           <Button asChild>
@@ -92,20 +144,23 @@ export function OrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockOrders.map((order) => (
+              {filteredOrders.map((order) => (
                 <TableRow key={order.id}>
                   <TableCell className="font-medium">{order.id}</TableCell>
                   <TableCell>{new Date(order.date).toLocaleDateString()}</TableCell>
                   <TableCell>
                     <Badge 
-                      variant={getStatusColor(order.status) as "default" | "success" | "warning" | "destructive"}
+                      variant={getStatusColor(order.status) as "default" | "destructive" | "outline" | "secondary"}
                     >
                       {order.status}
                     </Badge>
                   </TableCell>
                   <TableCell>${order.total.toFixed(2)}</TableCell>
-                  <TableCell>{order.items} {order.items === 1 ? 'item' : 'items'}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell>{order.items.length} {order.items.length === 1 ? 'item' : 'items'}</TableCell>
+                  <TableCell className="text-right flex justify-end gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => handlePrint(order.id)}>
+                      <Printer className="h-4 w-4" />
+                    </Button>
                     <Button variant="ghost" size="sm" asChild>
                       <Link to={`/orders/${order.id}`}>
                         View <ChevronRight className="ml-1 h-4 w-4" />

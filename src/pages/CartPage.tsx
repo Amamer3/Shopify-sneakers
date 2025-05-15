@@ -1,19 +1,37 @@
-
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '@/components/ui/use-toast';
 import CartItem from '../components/CartItem';
 import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
-import { ShoppingBag, ShoppingCart } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ShoppingBag, ShoppingCart, LogIn } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 export function CartPage() {
   const { cartItems, getCartTotal } = useCart();
+  const { isAuthenticated } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const subtotal = getCartTotal();
   const shipping = subtotal > 0 ? 15.00 : 0;
   const tax = subtotal * 0.08;
   const total = subtotal + shipping + tax;
-  
+
+  const handleCheckoutClick = () => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in or sign up to proceed with checkout.",
+        variant: "destructive",
+      });
+      sessionStorage.setItem('returnUrl', '/checkout');
+      navigate('/login');
+      return;
+    }
+    navigate('/checkout');
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
@@ -75,8 +93,13 @@ export function CartPage() {
                 <span>${total.toFixed(2)}</span>
               </div>
               
-              <Button className="w-full mt-6" size="lg" asChild>
-                <Link to="/checkout">Proceed to Checkout</Link>
+              <Button 
+                className="w-full mt-6" 
+                size="lg" 
+                onClick={handleCheckoutClick}
+              >
+                {!isAuthenticated && <LogIn className="h-5 w-5 mr-2" />}
+                {isAuthenticated ? 'Proceed to Checkout' : 'Login to Checkout'}
               </Button>
             </div>
           </div>

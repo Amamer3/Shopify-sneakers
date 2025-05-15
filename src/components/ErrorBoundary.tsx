@@ -23,9 +23,14 @@ class ErrorBoundary extends Component<Props, State> {
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
   }
-
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    import('../lib/logger').then(({ logger }) => {
+      logger.error('Uncaught error in component', {
+        error: error.toString(),
+        componentStack: errorInfo.componentStack,
+        stack: error.stack
+      });
+    });
   }
 
   private handleReload = () => {

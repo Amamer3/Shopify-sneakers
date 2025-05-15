@@ -1,13 +1,24 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuthRequired } from '../hooks/use-auth-required';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Shield, CreditCard, PlusCircle, Trash2 } from 'lucide-react';
+import { Shield, CreditCard, PlusCircle, Trash2, Smartphone } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { PaymentMethodForm } from '@/components/PaymentMethodForm';
+import { usePayment } from '@/contexts/PaymentContext';
 
-// Mock payment methods (will come from backend in real app)
-const mockPaymentMethods = [
+// Example payment methods for testing
+const initialPaymentMethods = [
   {
     id: 'pm-1234',
     type: 'visa',
@@ -27,17 +38,43 @@ const mockPaymentMethods = [
 ];
 
 export function PaymentMethodsPage() {
-  // Protect this route
-  const { isLoading } = useAuthRequired();
+  const { isLoading: authLoading } = useAuthRequired();
+  const { paymentMethods, addPaymentMethod, removePaymentMethod, setDefaultPaymentMethod, isLoading } = usePayment();
+  const [isAddingPayment, setIsAddingPayment] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const handlePaymentSubmit = async (data: any) => {
+    try {
+      // Format card number to get last4
+      const last4 = data.cardNumber ? data.cardNumber.slice(-4) : '';
+      
+      // Prepare payment method data based on type
+      const isMobilePayment = ['mpesa', 'airtel-money', 'mtn-momo', 'orange-money', 'tigo-pesa', 'vodafone-cash', 'wave'].includes(data.type);
+      
+      const paymentData = {
+        type: data.type,
+        holderName: data.holderName,
+        last4: isMobilePayment ? '' : last4,
+        expMonth: isMobilePayment ? undefined : parseInt(data.expMonth),
+        expYear: isMobilePayment ? undefined : parseInt(data.expYear),
+        isDefault: paymentMethods.length === 0, // Make first payment method default
+      };
+
+      await addPaymentMethod(paymentData);
+      setIsAddingPayment(false);
+    } catch (error) {
+      console.error('Failed to add payment method:', error);
+    }
+  };
   
-  if (isLoading) {
+  if (authLoading || isLoading) {
     return (
       <div className="container mx-auto px-4 py-16 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
-  
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-8">Payment Methods</h1>
@@ -55,45 +92,118 @@ export function PaymentMethodsPage() {
               </CardDescription>
             </CardHeader>
             
-            <CardContent className="space-y-4">
-              {mockPaymentMethods.length === 0 ? (
+            <CardContent className="space-y-4">              {paymentMethods.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">No payment methods added yet</p>
                 </div>
               ) : (
-                mockPaymentMethods.map((method) => (
+                paymentMethods.map((method) => (
                   <div key={method.id} className="flex items-center justify-between border rounded-lg p-4">
                     <div className="flex items-center">
-                      <div className="mr-3">
-                        {method.type === 'visa' ? (
-                          <div className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold">VISA</div>
-                        ) : method.type === 'mastercard' ? (
-                          <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">MC</div>
-                        ) : (
-                          <div className="bg-gray-500 text-white px-2 py-1 rounded text-xs font-bold">CARD</div>
-                        )}
+                      <div className="mr-3">                        {(() => {
+                          switch (method.type) {
+                            case 'visa':
+                              return <div className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold">VISA</div>;
+                            case 'mastercard':
+                              return <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">MC</div>;
+                            case 'verve':
+                              return <div className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">VERVE</div>;
+                            case 'mpesa':
+                              return (
+                                <div className="bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  M-PESA
+                                </div>
+                              );
+                            case 'mtn-momo':
+                              return (
+                                <div className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  MTN
+                                </div>
+                              );
+                            case 'orange-money':
+                              return (
+                                <div className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  ORANGE
+                                </div>
+                              );
+                            case 'airtel-money':
+                              return (
+                                <div className="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  AIRTEL
+                                </div>
+                              );
+                            case 'tigo-pesa':
+                              return (
+                                <div className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  TIGO
+                                </div>
+                              );
+                            case 'vodafone-cash':
+                              return (
+                                <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  VODAFONE
+                                </div>
+                              );
+                            case 'wave':
+                              return (
+                                <div className="bg-blue-400 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  WAVE
+                                </div>
+                              );
+                            default:
+                              return (
+                                <div className="bg-gray-500 text-white px-2 py-1 rounded text-xs font-bold">
+                                  <Smartphone className="h-3 w-3 inline mr-1" />
+                                  MOBILE
+                                </div>
+                              );
+                          }
+                        })()}
                       </div>
                       
                       <div>
                         <p className="font-medium">
-                          •••• •••• •••• {method.last4}
+                          {method.type === 'mpesa' || method.type === 'airtel-money' ? 
+                            method.holderName :
+                            <>•••• •••• •••• {method.last4}</>
+                          }
                           {method.isDefault && (
                             <Badge variant="outline" className="ml-2">Default</Badge>
                           )}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          Expires {method.expMonth}/{method.expYear}
+                          {method.type === 'mpesa' || method.type === 'airtel-money' ? 
+                            'Mobile Money' :
+                            `Expires ${method.expMonth}/${method.expYear}`
+                          }
                         </p>
                       </div>
                     </div>
                     
                     <div className="flex items-center">
                       {!method.isDefault && (
-                        <Button variant="ghost" size="sm" className="mr-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="mr-2"
+                          onClick={() => setDefaultPaymentMethod(method.id)}
+                        >
                           Set default
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" className="text-destructive">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-destructive"
+                        onClick={() => setDeleteId(method.id)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -101,7 +211,7 @@ export function PaymentMethodsPage() {
                 ))
               )}
               
-              <Button variant="outline" className="w-full" onClick={() => alert('In a real app, this would open a payment form')}>
+              <Button variant="outline" className="w-full" onClick={() => setIsAddingPayment(true)}>
                 <PlusCircle className="mr-2 h-4 w-4" />
                 Add Payment Method
               </Button>
@@ -132,6 +242,39 @@ export function PaymentMethodsPage() {
           </Card>
         </div>
       </div>
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Payment Method</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this payment method? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (deleteId) {
+                  await removePaymentMethod(deleteId);
+                  setDeleteId(null);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Payment Method Form Dialog */}
+      <PaymentMethodForm
+        isOpen={isAddingPayment}
+        onSubmit={handlePaymentSubmit}
+        onCancel={() => setIsAddingPayment(false)}
+      />
     </div>
   );
 }

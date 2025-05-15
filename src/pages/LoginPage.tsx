@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,7 +14,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Loader } from 'lucide-react';
+import { Loader, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 
 const loginSchema = z.object({
@@ -29,9 +28,10 @@ export function LoginPage() {
   const { login, isLoading, error } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Get redirect path from location state or default to homepage
-  const from = location.state?.from?.pathname || '/';
+  const [showPassword, setShowPassword] = useState(false);
+    // Get redirect path from session storage, location state, or default to homepage
+  const returnUrl = sessionStorage.getItem('returnUrl');
+  const from = returnUrl || location.state?.from?.pathname || '/';
   
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -42,10 +42,11 @@ export function LoginPage() {
   });
   
   const onSubmit = async (data: LoginFormValues) => {
-    try {
-      await login(data.email, data.password);
+    try {      await login(data.email, data.password);
       if (!error) {
         toast.success('Login successful!');
+        // Clear the return URL from session storage
+        sessionStorage.removeItem('returnUrl');
         navigate(from, { replace: true });
       }
     } catch (err) {
@@ -79,17 +80,46 @@ export function LoginPage() {
                   </FormItem>
                 )}
               />
-              
-              <FormField
+                <FormField
                 control={form.control}
                 name="password"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
+                      <div className="relative">
+                        <Input 
+                          type={showPassword ? "text" : "password"} 
+                          placeholder="••••••••" 
+                          {...field} 
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="sr-only">
+                            {showPassword ? "Hide password" : "Show password"}
+                          </span>
+                        </Button>
+                      </div>
                     </FormControl>
                     <FormMessage />
+                    <div className="text-right">
+                      <Link
+                        to="/forgot-password"
+                        className="text-sm text-muted-foreground hover:text-primary"
+                      >
+                        Forgot password?
+                      </Link>
+                    </div>
                   </FormItem>
                 )}
               />
@@ -110,8 +140,12 @@ export function LoginPage() {
               </Button>
             </form>
           </Form>
-          
-          <div className="mt-4 text-center text-sm">
+            <div className="mt-4 text-center text-sm space-y-2">
+            <p>
+              <Link to="/forgot-password" className="text-muted-foreground hover:text-primary">
+                Forgot your password?
+              </Link>
+            </p>
             <p>
               Don't have an account?{' '}
               <Link to="/signup" className="text-primary hover:underline">

@@ -70,10 +70,10 @@ function Navbar() {
                 size="sm"
                 asChild
               >
-                <Link to="/signup">
+                {/* <Link to="/signup">
                   <UserPlus className="h-4 w-4 mr-1" />
                   Sign Up
-                </Link>
+                </Link> */}
               </Button>
             </div>
           )}
