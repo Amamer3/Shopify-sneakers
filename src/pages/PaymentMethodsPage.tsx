@@ -10,11 +10,10 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
+  AlertDialogFooter,  AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PaymentMethodForm, PaymentMethodFormData } from '@/components/PaymentMethodForm';
+import { PaymentMethodForm, PaymentMethodFormData } from '../components/PaymentMethodForm';
 import { useProfile } from '../contexts/ProfileContext';
 import { PaymentMethodInput, PaymentMethod } from '@/types/models';
 
