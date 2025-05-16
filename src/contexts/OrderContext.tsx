@@ -1,242 +1,159 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useAuth } from './AuthContext';
+import React, { createContext, useContext, useState } from 'react';
+import { profileService } from '@/services/profile';
+import type { PaginatedOrders, Order } from '@/types/models';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
-export interface OrderItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-  image: string;
-  size?: string;
-  color?: string;
-}
-
-export interface OrderTrackingEvent {
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-  date: string;
-  location: string;
-  description: string;
-}
-
-export interface Order {
-  customer: any;
-  id: string;
-  userId: string;
-  date: string;
-  status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-  total: number;
-  items: OrderItem[];
-  shippingAddress: {
-    street: string;
-    city: string;
-    state: string;
-    zipCode: string;
-    country: string;
-  };
-  trackingNumber?: string;
-  trackingHistory: OrderTrackingEvent[];
-  paymentMethod: {
-    type: string;
-    last4?: string;
-  };
-}
-
-interface OrderContextType {
-  orders: Order[];
+type OrderContextType = {
+  orders: PaginatedOrders | null;
   isLoading: boolean;
-  error: string | null;
+  error: Error | null;
+  currentPage: number;
+  pageSize: number;
+  setPage: (page: number) => void;
+  setPageSize: (size: number) => void;
+  refetchOrders: () => Promise<void>;
   getOrderById: (id: string) => Order | undefined;
-  filterOrders: (status?: string, dateRange?: { start: Date; end: Date }) => Order[];
+  totalPages: number;
+  totalOrders: number;
+  filterOrders: (status: string, dateRange: { start: Date; end: Date } | null) => Order[];
   sortOrders: (by: 'date' | 'total' | 'status', direction: 'asc' | 'desc') => void;
-}
+};
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
-// Mock data with more realistic details
-const mockOrders: Order[] = [
-  {
-      id: 'ORD-2025-001',
-      userId: 'user123',
-      date: '2025-05-14',
-      status: 'shipped',
-      total: 299.98,
-      items: [
-          {
-              id: 'item1',
-              name: 'Urban Runner X1',
-              quantity: 1,
-              price: 149.99,
-              image: '/placeholder.svg',
-              size: '42',
-              color: 'Black/Red'
-          },
-          {
-              id: 'item2',
-              name: 'Street Walker Pro',
-              quantity: 1,
-              price: 149.99,
-              image: '/placeholder.svg',
-              size: '43',
-              color: 'White/Blue'
-          }
-      ],
-      shippingAddress: {
-          street: '123 Main St',
-          city: 'Nairobi',
-          state: 'Nairobi',
-          zipCode: '00100',
-          country: 'Kenya'
-      },
-      trackingNumber: '1Z999AA1234567890',
-      trackingHistory: [
-          {
-              status: 'shipped',
-              date: '2025-05-14T10:00:00',
-              location: 'Nairobi, Kenya',
-              description: 'Package in transit'
-          },
-          {
-              status: 'processing',
-              date: '2025-05-13T15:30:00',
-              location: 'Warehouse',
-              description: 'Package left warehouse'
-          },
-          {
-              status: 'pending',
-              date: '2025-05-12T09:00:00',
-              location: 'Online',
-              description: 'Order confirmed'
-          }
-      ],
-      paymentMethod: {
-          type: 'mpesa',
-          last4: '1234'
-      },
-      customer: undefined
-  },
-  {
-      id: 'ORD-2025-002',
-      userId: 'user123',
-      date: '2025-05-10',
-      status: 'delivered',
-      total: 199.99,
-      items: [
-          {
-              id: 'item3',
-              name: 'Air Comfort Elite',
-              quantity: 1,
-              price: 199.99,
-              image: '/placeholder.svg',
-              size: '41',
-              color: 'Grey/White'
-          }
-      ],
-      shippingAddress: {
-          street: '456 Park Ave',
-          city: 'Lagos',
-          state: 'Lagos',
-          zipCode: '100001',
-          country: 'Nigeria'
-      },
-      trackingNumber: '1Z999AA1234567891',
-      trackingHistory: [
-          {
-              status: 'delivered',
-              date: '2025-05-14T14:00:00',
-              location: 'Lagos, Nigeria',
-              description: 'Package delivered'
-          },
-          {
-              status: 'shipped',
-              date: '2025-05-12T10:00:00',
-              location: 'Lagos, Nigeria',
-              description: 'Out for delivery'
-          },
-          {
-              status: 'processing',
-              date: '2025-05-11T15:30:00',
-              location: 'Warehouse',
-              description: 'Package left warehouse'
-          }
-      ],
-      paymentMethod: {
-          type: 'card',
-          last4: '4242'
-      },
-      customer: undefined
-  }
-];
-
 export function OrderProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [sortedOrders, setSortedOrders] = useState<Order[]>([]);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    // Simulate API call to fetch orders
-    const fetchOrders = async () => {
-      setIsLoading(true);
-      try {
-        // In a real app, this would be an API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        setOrders(mockOrders);
-      } catch (err) {
-        setError('Failed to fetch orders');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const {
+    data: orders,
+    isLoading,
+    error,
+    refetch
+  } = useQuery<PaginatedOrders, Error>({
+    queryKey: ['orders', { page: currentPage, pageSize }],
+    queryFn: () => profileService.getOrders(currentPage, pageSize),
+  });
 
-    if (user) {
-      fetchOrders();
+  // Update sortedOrders when orders change
+  React.useEffect(() => {
+    if (orders?.items) {
+      setSortedOrders(orders.items);
     }
-  }, [user]);
+  }, [orders]);
 
-  const getOrderById = (id: string) => {
-    return orders.find(order => order.id === id);
+  // Handle errors
+  React.useEffect(() => {
+    if (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch orders';
+      toast.error('Unable to load orders', {
+        description: message
+      });
+    }
+  }, [error]);
+
+  // Set page function with validation
+  const setPage = (page: number) => {
+    if (page < 1 || (orders && page > orders.totalPages)) return;
+    setCurrentPage(page);
   };
-  const filterOrders = (status?: string, dateRange?: { start: Date; end: Date }) => {
-    return orders.filter(order => {
-      const matchesStatus = !status || status === 'all' || order.status === status.toLowerCase();
-      const matchesDate = !dateRange || (
-        new Date(order.date) >= dateRange.start &&
-        new Date(order.date) <= dateRange.end
-      );
-      return matchesStatus && matchesDate;
+
+  // Set page size function
+  const setSize = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1); // Reset to first page when changing page size
+  };
+
+  // Refetch orders function with proper error handling
+  const refetchOrders = async () => {
+    try {
+      await refetch();
+      toast.success('Orders refreshed');
+    } catch (err) {
+      const error = err as Error;
+      toast.error('Failed to refresh orders', {
+        description: error.message || 'Please try again later'
+      });
+    }
+  };
+
+  // Get order by ID function with type safety
+  const getOrderById = (id: string): Order | undefined => {
+    return orders?.items?.find(order => order.id === id);
+  };
+
+  // Filter orders based on status and date range
+  const filterOrders = (status: string, dateRange: { start: Date; end: Date } | null) => {
+    if (!orders?.items) return [];
+
+    return orders.items.filter(order => {
+      const matchesStatus = status === 'all' || order.status.toLowerCase() === status.toLowerCase();
+      
+      if (dateRange) {
+        const orderDate = new Date(order.date);
+        const matchesDateRange = orderDate >= dateRange.start && orderDate <= dateRange.end;
+        return matchesStatus && matchesDateRange;
+      }
+      
+      return matchesStatus;
     });
   };
 
+  // Sort orders by specified field and direction
   const sortOrders = (by: 'date' | 'total' | 'status', direction: 'asc' | 'desc') => {
-    const sorted = [...orders].sort((a, b) => {
-      if (by === 'date') {
-        return new Date(a.date).getTime() - new Date(b.date).getTime();
+    if (!orders?.items) return;
+
+    const sorted = [...orders.items].sort((a, b) => {
+      let comparison = 0;
+      switch (by) {
+        case 'date':
+          comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+          break;
+        case 'total':
+          comparison = a.total - b.total;
+          break;
+        case 'status':
+          comparison = a.status.localeCompare(b.status);
+          break;
       }
-      if (by === 'total') {
-        return a.total - b.total;
-      }
-      // by status
-      return a.status.localeCompare(b.status);
+      return direction === 'asc' ? comparison : -comparison;
     });
 
-    if (direction === 'desc') {
-      sorted.reverse();
-    }
-
-    setOrders(sorted);
+    setSortedOrders(sorted);
   };
+
+  // Pre-fetch next page
+  React.useEffect(() => {
+    if (orders && currentPage < orders.totalPages) {
+      const nextPage = currentPage + 1;
+      void queryClient.prefetchQuery<PaginatedOrders>({
+        queryKey: ['orders', { page: nextPage, pageSize }],
+        queryFn: () => profileService.getOrders(nextPage, pageSize),
+      });
+    }
+  }, [currentPage, orders, pageSize, queryClient]);
+
+  const value = React.useMemo(() => ({
+    orders,
+    isLoading,
+    error: error || null,
+    currentPage,
+    pageSize,
+    setPage,
+    setPageSize: setSize,
+    refetchOrders,
+    getOrderById,
+    totalPages: orders?.totalPages || 0,
+    totalOrders: orders?.total || 0,
+    filterOrders,
+    sortOrders
+  }), [orders, isLoading, error, currentPage, pageSize, sortedOrders]);
 
   return (
-    <OrderContext.Provider
-      value={{
-        orders,
-        isLoading,
-        error,
-        getOrderById,
-        filterOrders,
-        sortOrders,
-      }}
-    >
+    <OrderContext.Provider value={value}>
       {children}
     </OrderContext.Provider>
   );
@@ -244,7 +161,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
 export function useOrders() {
   const context = useContext(OrderContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useOrders must be used within an OrderProvider');
   }
   return context;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuthRequired } from '../hooks/use-auth-required';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Shield, CreditCard, PlusCircle, Trash2, Smartphone } from 'lucide-react';
 import {
@@ -14,50 +14,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { PaymentMethodForm } from '@/components/PaymentMethodForm';
-import { usePayment } from '@/contexts/PaymentContext';
-
-// Example payment methods for testing
-const initialPaymentMethods = [
-  {
-    id: 'pm-1234',
-    type: 'visa',
-    last4: '4242',
-    expMonth: 12,
-    expYear: 2025,
-    isDefault: true,
-  },
-  {
-    id: 'pm-1235',
-    type: 'mastercard',
-    last4: '5555',
-    expMonth: 8,
-    expYear: 2024,
-    isDefault: false,
-  }
-];
+import { PaymentMethodForm, PaymentMethodFormData } from '@/components/PaymentMethodForm';
+import { useProfile } from '../contexts/ProfileContext';
+import { PaymentMethodInput, PaymentMethod } from '@/types/models';
 
 export function PaymentMethodsPage() {
   const { isLoading: authLoading } = useAuthRequired();
-  const { paymentMethods, addPaymentMethod, removePaymentMethod, setDefaultPaymentMethod, isLoading } = usePayment();
+  const { profile, isLoading, addPaymentMethod, deletePaymentMethod, updateProfile } = useProfile();
   const [isAddingPayment, setIsAddingPayment] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const handlePaymentSubmit = async (data: any) => {
+  const handlePaymentSubmit = async (formData: PaymentMethodFormData) => {
     try {
-      // Format card number to get last4
-      const last4 = data.cardNumber ? data.cardNumber.slice(-4) : '';
-      
-      // Prepare payment method data based on type
-      const isMobilePayment = ['mpesa', 'airtel-money', 'mtn-momo', 'orange-money', 'tigo-pesa', 'vodafone-cash', 'wave'].includes(data.type);
-      
-      const paymentData = {
-        type: data.type,
-        holderName: data.holderName,
-        last4: isMobilePayment ? '' : last4,
-        expMonth: isMobilePayment ? undefined : parseInt(data.expMonth),
-        expYear: isMobilePayment ? undefined : parseInt(data.expYear),
-        isDefault: paymentMethods.length === 0, // Make first payment method default
+      // Convert form data to API format
+      const isCard = ['visa', 'mastercard', 'verve'].includes(formData.type);      const paymentData: PaymentMethodInput = {
+        type: isCard ? 'card' : 'bank',
+        brand: formData.type,
+        holderName: formData.holderName,
+        cardNumber: formData.cardNumber,
+        expiryMonth: formData.expMonth ? parseInt(formData.expMonth, 10) : undefined,
+        expiryYear: formData.expYear ? parseInt(formData.expYear, 10) : undefined,
+        cvc: formData.cvv
       };
 
       await addPaymentMethod(paymentData);
@@ -74,6 +51,74 @@ export function PaymentMethodsPage() {
       </div>
     );
   }
+
+  const paymentMethods = profile?.paymentMethods ?? [];
+
+  const getPaymentMethodBadge = (method: PaymentMethod) => {
+    switch (method.brand) {
+      case 'visa':
+        return <div className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold">VISA</div>;
+      case 'mastercard':
+        return <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">MC</div>;
+      case 'verve':
+        return <div className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">VERVE</div>;
+      case 'mpesa':
+        return (
+          <div className="bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            M-PESA
+          </div>
+        );
+      case 'airtel-money':
+        return (
+          <div className="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            AIRTEL
+          </div>
+        );
+      case 'mtn-momo':
+        return (
+          <div className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            MTN
+          </div>
+        );
+      case 'orange-money':
+        return (
+          <div className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            ORANGE
+          </div>
+        );
+      case 'tigo-pesa':
+        return (
+          <div className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            TIGO
+          </div>
+        );
+      case 'vodafone-cash':
+        return (
+          <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            VODAFONE
+          </div>
+        );
+      case 'wave':
+        return (
+          <div className="bg-blue-400 text-white px-2 py-1 rounded text-xs font-bold">
+            <Smartphone className="h-3 w-3 inline mr-1" />
+            WAVE
+          </div>
+        );
+      default:
+        return (
+          <div className="bg-gray-500 text-white px-2 py-1 rounded text-xs font-bold">
+            {method.type.toUpperCase()}
+          </div>
+        );
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -92,7 +137,8 @@ export function PaymentMethodsPage() {
               </CardDescription>
             </CardHeader>
             
-            <CardContent className="space-y-4">              {paymentMethods.length === 0 ? (
+            <CardContent className="space-y-4">
+              {paymentMethods.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-muted-foreground">No payment methods added yet</p>
                 </div>
@@ -100,90 +146,25 @@ export function PaymentMethodsPage() {
                 paymentMethods.map((method) => (
                   <div key={method.id} className="flex items-center justify-between border rounded-lg p-4">
                     <div className="flex items-center">
-                      <div className="mr-3">                        {(() => {
-                          switch (method.type) {
-                            case 'visa':
-                              return <div className="bg-blue-600 text-white px-2 py-1 rounded text-xs font-bold">VISA</div>;
-                            case 'mastercard':
-                              return <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">MC</div>;
-                            case 'verve':
-                              return <div className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">VERVE</div>;
-                            case 'mpesa':
-                              return (
-                                <div className="bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  M-PESA
-                                </div>
-                              );
-                            case 'mtn-momo':
-                              return (
-                                <div className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  MTN
-                                </div>
-                              );
-                            case 'orange-money':
-                              return (
-                                <div className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  ORANGE
-                                </div>
-                              );
-                            case 'airtel-money':
-                              return (
-                                <div className="bg-red-600 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  AIRTEL
-                                </div>
-                              );
-                            case 'tigo-pesa':
-                              return (
-                                <div className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  TIGO
-                                </div>
-                              );
-                            case 'vodafone-cash':
-                              return (
-                                <div className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  VODAFONE
-                                </div>
-                              );
-                            case 'wave':
-                              return (
-                                <div className="bg-blue-400 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  WAVE
-                                </div>
-                              );
-                            default:
-                              return (
-                                <div className="bg-gray-500 text-white px-2 py-1 rounded text-xs font-bold">
-                                  <Smartphone className="h-3 w-3 inline mr-1" />
-                                  MOBILE
-                                </div>
-                              );
-                          }
-                        })()}
+                      <div className="mr-3">
+                        {getPaymentMethodBadge(method)}
                       </div>
                       
                       <div>
                         <p className="font-medium">
-                          {method.type === 'mpesa' || method.type === 'airtel-money' ? 
-                            method.holderName :
-                            <>•••• •••• •••• {method.last4}</>
+                          {method.type === 'bank' ? 
+                            method.brand :
+                            <>•••• {method.last4}</>
                           }
                           {method.isDefault && (
                             <Badge variant="outline" className="ml-2">Default</Badge>
                           )}
                         </p>
-                        <p className="text-sm text-muted-foreground">
-                          {method.type === 'mpesa' || method.type === 'airtel-money' ? 
-                            'Mobile Money' :
-                            `Expires ${method.expMonth}/${method.expYear}`
-                          }
-                        </p>
+                        {method.expiryMonth && method.expiryYear && (
+                          <p className="text-sm text-muted-foreground">
+                            Expires {method.expiryMonth}/{method.expiryYear}
+                          </p>
+                        )}
                       </div>
                     </div>
                     
@@ -193,7 +174,7 @@ export function PaymentMethodsPage() {
                           variant="ghost" 
                           size="sm" 
                           className="mr-2"
-                          onClick={() => setDefaultPaymentMethod(method.id)}
+                          onClick={() => updateProfile({ defaultPaymentMethodId: method.id })}
                         >
                           Set default
                         </Button>
@@ -243,7 +224,6 @@ export function PaymentMethodsPage() {
         </div>
       </div>
       
-      {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -257,7 +237,7 @@ export function PaymentMethodsPage() {
             <AlertDialogAction
               onClick={async () => {
                 if (deleteId) {
-                  await removePaymentMethod(deleteId);
+                  await deletePaymentMethod(deleteId);
                   setDeleteId(null);
                 }
               }}
@@ -269,7 +249,6 @@ export function PaymentMethodsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Payment Method Form Dialog */}
       <PaymentMethodForm
         isOpen={isAddingPayment}
         onSubmit={handlePaymentSubmit}
@@ -279,7 +258,6 @@ export function PaymentMethodsPage() {
   );
 }
 
-// Badge component for this page since we're using it once and don't want to import
 function Badge({ children, variant = "default", className }: { children: React.ReactNode, variant?: "default" | "outline", className?: string }) {
   const baseStyles = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors";
   const variantStyles = variant === "outline" 

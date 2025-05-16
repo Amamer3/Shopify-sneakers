@@ -60,7 +60,8 @@ const getStatusColor = (status: string) => {
 export function OrdersPage() {
   // Protect this route
   const { isLoading: authLoading } = useAuthRequired();
-  const { orders, isLoading: ordersLoading, filterOrders, sortOrders } = useOrders();  const [selectedStatus, setSelectedStatus] = useState('all');
+  const { orders, isLoading: ordersLoading, filterOrders, sortOrders } = useOrders();
+  const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedDateRange, setSelectedDateRange] = useState<{ start: Date; end: Date } | null>(null);
   const [selectedSort, setSelectedSort] = useState<{ by: 'date' | 'total' | 'status'; direction: 'asc' | 'desc' }>({
     by: 'date',
@@ -68,7 +69,6 @@ export function OrdersPage() {
   });
   
   const handleStatusChange = (status: string) => {
-    setSelectedStatus(status);
     setSelectedStatus(status);
   };
 
@@ -82,18 +82,20 @@ export function OrdersPage() {
   };
 
   const handleExport = () => {
-    exportToCSV(filteredOrders);
+    if (orders?.items) {
+      exportToCSV(orders.items);
+    }
   };
 
   const handlePrint = (orderId: string) => {
-    const order = orders.find(o => o.id === orderId);
+    const order = orders?.items.find(o => o.id === orderId);
     if (order) {
       printOrder(order);
     }
   };
 
   // Get filtered orders
-  const filteredOrders = filterOrders(selectedStatus, selectedDateRange);
+  const filteredOrders = orders?.items ? filterOrders(selectedStatus, selectedDateRange) : [];
   
   if (authLoading || ordersLoading) {
     return (
@@ -124,7 +126,7 @@ export function OrdersPage() {
 
       {filteredOrders.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-muted-foreground mb-4">You haven't placed any orders yet.</p>
+          <p className="text-muted-foreground mb-4">No orders found matching your filters.</p>
           <Button asChild>
             <Link to="/">Shop Now</Link>
           </Button>

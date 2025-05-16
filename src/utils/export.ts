@@ -1,14 +1,14 @@
-import { type Order } from "@/contexts/OrderContext";
+import { type Order } from "@/types/models";
 
 export const exportToCSV = (orders: Order[]) => {
   const headers = ["Order ID", "Date", "Status", "Total", "Payment Method", "Customer"];
   const rows = orders.map(order => [
-    order.id,
+    order.orderNumber,
     new Date(order.date).toLocaleDateString(),
     order.status,
     order.total.toFixed(2),
-    order.paymentMethod,
-    order.customer.name
+    `${order.paymentMethod.type} ${order.paymentMethod.last4 ? `(**** ${order.paymentMethod.last4})` : ''}`,
+    order.shippingAddress.name
   ]);
 
   const csvContent = [
@@ -31,7 +31,7 @@ export const printOrder = (order: Order) => {
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Order #${order.id}</title>
+        <title>Order #${order.orderNumber}</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; }
           .header { text-align: center; margin-bottom: 30px; }
@@ -47,13 +47,13 @@ export const printOrder = (order: Order) => {
       <body>
         <div class="header">
           <h1>Urban Sole Store</h1>
-          <h2>Order #${order.id}</h2>
+          <h2>Order #${order.orderNumber}</h2>
         </div>
         <div class="order-details">
           <p><strong>Date:</strong> ${new Date(order.date).toLocaleDateString()}</p>
-          <p><strong>Customer:</strong> ${order.customer.name}</p>
+          <p><strong>Customer:</strong> ${order.shippingAddress.name}</p>
           <p><strong>Status:</strong> ${order.status}</p>
-          <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
+          <p><strong>Payment Method:</strong> ${order.paymentMethod.type} ${order.paymentMethod.last4 ? `(**** ${order.paymentMethod.last4})` : ''}</p>
         </div>
         <table class="items">
           <thead>
@@ -85,7 +85,6 @@ export const printOrder = (order: Order) => {
   printWindow.document.write(content);
   printWindow.document.close();
   
-  // Wait for images to load before printing
   setTimeout(() => {
     printWindow.print();
     printWindow.close();
