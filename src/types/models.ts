@@ -1,5 +1,42 @@
 export type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
 
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  stockLevel: number;
+  images: string[];
+  mainImage: string;
+  categories: string[];
+  sizes?: string[];
+  colors?: string[];
+  brand?: string;
+  sku: string;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata?: Record<string, any>;
+}
+
+export interface User {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'user' | 'admin';
+  isEmailVerified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  lastLoginAt?: Date;
+  preferences?: {
+    notifications: boolean;
+    newsletter: boolean;
+    language: string;
+    currency: string;
+  };
+  metadata?: Record<string, any>;
+}
+
 export interface OrderItem {
   id: string;
   productId: string;
@@ -97,4 +134,22 @@ export interface PaymentMethodInput {
   expiryMonth?: number;
   expiryYear?: number;
   cvc?: string;
+}
+
+export interface WishlistItem {
+  id: string;
+  productId: string;
+  name: string;
+  description?: string;
+  price: number;
+  image: string;
+  addedAt: Date;
+}
+
+export interface Wishlist {
+  id: string;
+  userId: string;
+  items: WishlistItem[];
+  updatedAt: Date;
+  createdAt: Date;
 }

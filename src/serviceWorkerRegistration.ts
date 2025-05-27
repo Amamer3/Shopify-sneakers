@@ -1,3 +1,5 @@
+import { toast } from 'sonner';
+
 // This optional code is used to register a service worker.
 // register() is not called by default.
 
@@ -48,7 +50,7 @@ export function register(config?: Config) {
         // service worker/PWA documentation.
         navigator.serviceWorker.ready.then(() => {
           logger.info(
-            'This web app is being served cache-first by a service worker.'
+            'This web app is being served cache-first by a service worker. To learn more, visit https://cra.link/PWA'
           );
         });
       } else {
@@ -72,19 +74,32 @@ function registerValidSW(swUrl: string, config?: Config) {
           if (installingWorker.state === 'installed') {
             if (navigator.serviceWorker.controller) {
               // At this point, the updated precached content has been fetched,
-              // but the previous service worker will still serve the older
-              // content until all client tabs are closed.
-              logger.info('New content is available and will be used when all tabs for this page are closed.');
+              // and all old tabs having been closed, it's the right time to
+              // display a "New content available; please refresh." message.
+              console.log('New content is available and will be used when all'+ 'tabs for this page are closed. See https://cra.link/PWA.');
+
+              // Use sonner toast to notify the user
+              toast.info('New version available! Click here to update.', {
+                duration: Infinity, // Keep the toast visible until clicked
+                action: {
+                  label: 'Update',
+                  onClick: () => {
+                    if (registration && registration.waiting) {
+                      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+                    }
+                    window.location.reload();
+                  },
+                },
+              });
 
               // Execute callback
               if (config && config.onUpdate) {
                 config.onUpdate(registration);
               }
             } else {
-              // At this point, everything has been precached.
-              // It's the perfect time to display a
-              // "Content is cached for offline use." message.
-              logger.info('Content is cached for offline use.');
+              // At this point, everything has been precached. It's the perfect time to
+              // display a "Content is cached for offline use." message.
+              console.log('Content is cached for offline use.');
 
               // Execute callback
               if (config && config.onSuccess) {
@@ -96,7 +111,7 @@ function registerValidSW(swUrl: string, config?: Config) {
       };
     })
     .catch((error) => {
-      logger.error('Error during service worker registration:', error);
+      console.error('Error during service worker registration:', error);
     });
 }
 
@@ -124,7 +139,7 @@ function checkValidServiceWorker(swUrl: string, config?: Config) {
       }
     })
     .catch(() => {
-      logger.info('No internet connection found. App is running in offline mode.');
+      console.log('No internet connection found. App is running in offline mode.');
     });
 }
 
@@ -135,7 +150,7 @@ export function unregister() {
         registration.unregister();
       })
       .catch((error) => {
-        logger.error(error.message);
+        console.error(error.message);
       });
   }
 }

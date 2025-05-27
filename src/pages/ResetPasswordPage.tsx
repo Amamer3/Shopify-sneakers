@@ -18,8 +18,13 @@ import { Loader } from 'lucide-react';
 import { toast } from 'sonner';
 
 const resetPasswordSchema = z.object({
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string().min(6, 'Confirm your password'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
+  confirmPassword: z.string()
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
@@ -43,16 +48,27 @@ export default function ResetPasswordPage() {
   
   const onSubmit = async (data: ResetPasswordFormValues) => {
     if (!token) {
-      toast.error('Invalid reset token');
+      toast.error('Invalid reset token', {
+        description: 'Please request a new password reset link'
+      });
       return;
     }
     
     try {
       await resetPassword(token, data.password);
-      toast.success('Password has been reset successfully');
-      navigate('/login');
+      toast.success('Password has been reset successfully', {
+        description: 'You can now log in with your new password',
+        duration: 5000
+      });
+      setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
       console.error('Reset password error:', err);
+      toast.error('Failed to reset password', {
+        description: error || 'The reset link may have expired. Please request a new one.',
+      });
+      if (error?.includes('expired')) {
+        setTimeout(() => navigate('/forgot-password'), 2000);
+      }
     }
   };
   

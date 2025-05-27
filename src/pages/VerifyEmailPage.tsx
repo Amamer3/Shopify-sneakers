@@ -3,13 +3,16 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Loader, CheckCircle, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function VerifyEmailPage() {
-  const { verifyEmail, error } = useAuth();
+  const { verifyEmail, error, resendVerification } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [verificationStatus, setVerificationStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [isResending, setIsResending] = useState(false);
   const token = searchParams.get('token');
+  const email = searchParams.get('email');
 
   useEffect(() => {
     const verifyToken = async () => {
@@ -29,6 +32,28 @@ export default function VerifyEmailPage() {
 
     verifyToken();
   }, [token, verifyEmail]);
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      toast.error('Email address not found');
+      return;
+    }
+
+    setIsResending(true);
+    try {
+      await resendVerification(email);
+      toast.success('Verification email sent', {
+        description: 'Please check your inbox for the new verification link'
+      });
+    } catch (err) {
+      console.error('Resend verification error:', err);
+      toast.error('Failed to resend verification email', {
+        description: 'Please try again later'
+      });
+    } finally {
+      setIsResending(false);
+    }
+  };
 
   if (!token) {
     return (
@@ -86,12 +111,31 @@ export default function VerifyEmailPage() {
             <p className="text-muted-foreground mt-2">
               {error || 'Failed to verify your email address. The link may have expired.'}
             </p>
-            <Button
-              className="mt-4"
-              onClick={() => navigate('/login')}
-            >
-              Return to Login
-            </Button>
+            <div className="mt-4 space-y-2">
+              {email && (
+                <Button
+                  variant="outline"
+                  onClick={handleResendVerification}
+                  disabled={isResending}
+                  className="w-full"
+                >
+                  {isResending ? (
+                    <>
+                      <Loader className="mr-2 h-4 w-4 animate-spin" />
+                      Resending verification email...
+                    </>
+                  ) : (
+                    'Resend verification email'
+                  )}
+                </Button>
+              )}
+              <Button
+                onClick={() => navigate('/login')}
+                className="w-full"
+              >
+                Return to Login
+              </Button>
+            </div>
           </>
         )}
       </div>

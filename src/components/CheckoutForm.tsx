@@ -1,9 +1,8 @@
-
 import React from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Button } from './ui/button';
+import { LoadingButton } from './ui/loading-button';
 import {
   Form,
   FormControl,
@@ -194,15 +193,14 @@ export function CheckoutForm({ onSubmit, isProcessing }: CheckoutFormProps) {
               Your personal information is securely processed and never stored without encryption.
             </p>
           </div>
-          
-          <Button 
+            <LoadingButton 
             type="submit" 
-            className="w-full" 
-            disabled={isProcessing}
-            aria-busy={isProcessing}
+            className="w-full"
+            isLoading={isProcessing}
+            loadingText="Processing..."
           >
-            {isProcessing ? 'Processing...' : 'Place Order'}
-          </Button>
+            Place Order
+          </LoadingButton>
         </form>
       </Form>
     </div>

@@ -20,9 +20,13 @@
     <!-- Google Fonts -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
   </head>
-
   <body>
     <div id="root"></div>
+    <!-- Environment variables for development -->
+    <script>
+      window.__WS_TOKEN__ = '%VITE_WS_TOKEN%';
+      window.__DEV_MODE__ = '%VITE_DEV_MODE%' === 'true';
+    </script>
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS VERY COMMENT! -->
     <script src="https://cdn.gpteng.co/gptengineer.js" type="module"></script>
     <script type="module" src="/src/main.tsx"></script>

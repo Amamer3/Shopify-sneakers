@@ -22,8 +22,8 @@ class ErrorBoundary extends Component<Props, State> {
 
   public static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
-  }
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  }  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Log the error
     import('../lib/logger').then(({ logger }) => {
       logger.error('Uncaught error in component', {
         error: error.toString(),
@@ -31,6 +31,28 @@ class ErrorBoundary extends Component<Props, State> {
         stack: error.stack
       });
     });
+
+    // Handle authentication-related errors
+    if (
+      error.name === 'AuthenticationError' ||
+      error.name === 'TokenExpiredError' ||
+      (error instanceof Error && error.message.includes('Authentication'))
+    ) {
+      // Clear authentication state
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+
+      // Show error toast
+      import('sonner').then(({ toast }) => {
+        toast.error(error.message || 'Authentication failed. Please log in again.');
+      });
+
+      // Redirect to login page
+      setTimeout(() => {
+        window.location.href = '/login';
+      }, 1500);
+    }
   }
 
   private handleReload = () => {
@@ -47,7 +69,12 @@ class ErrorBoundary extends Component<Props, State> {
         <div className="flex items-center justify-center w-full h-screen p-4">
           <div className="max-w-md w-full">
             <Alert variant="destructive" className="mb-4">
-              <AlertTitle className="text-lg font-semibold mb-2">Something went wrong</AlertTitle>
+              <AlertTitle className="text-lg font-semibold mb-2">
+                {this.state.error?.name === 'AuthenticationError' ? 'Authentication Error' : 'Something went wrong'}
+              </AlertTitle>
+              <AlertDescription className="text-sm">
+                {this.state.error?.message || 'An unexpected error occurred. Please try again.'}
+              </AlertDescription>
               <AlertDescription className="text-sm">
                 <p className="mb-4">We're sorry, but an unexpected error occurred.</p>
                 {this.state.error && (

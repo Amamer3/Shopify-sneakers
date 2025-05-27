@@ -10,6 +10,8 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { PaymentProvider } from "./contexts/PaymentContext";
 import { OrderProvider } from "./contexts/OrderContext";
 import { ProfileProvider } from "@/contexts/ProfileContext";
+import { WishlistProvider } from "@/contexts/WishlistContext";
+import { SocketProvider } from "@/contexts/SocketContext";
 import { ThemeProvider } from "./hooks/use-theme";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { PrivateRoute } from "./components/auth/PrivateRoute";
@@ -34,6 +36,7 @@ const ProfilePage = React.lazy(() => import("./pages/ProfilePage"));
 const OrdersPage = React.lazy(() => import("./pages/OrdersPage"));
 const OrderDetailPage = React.lazy(() => import("./pages/OrderDetailPage"));
 const PaymentMethodsPage = React.lazy(() => import("./pages/PaymentMethodsPage"));
+const WishlistPage = React.lazy(() => import("./pages/WishlistPage"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 
 // Loading component for suspense fallback
@@ -52,74 +55,92 @@ const queryClient = new QueryClient({
   },
 });
 
+// Development mode check
+const isDev = process.env.NODE_ENV === 'development';
+
 const App = () => (
   <ErrorBoundary>
     <AnalyticsWrapper>
       <BrowserRouter>
         <WebVitalsProvider>
           <ThemeProvider defaultTheme="light">
-            <QueryClientProvider client={queryClient}>
-              <AuthProvider>
+            <QueryClientProvider client={queryClient}>              <AuthProvider>
                 <ProfileProvider>
-                  <PaymentProvider>
-                    <OrderProvider>
-                      <CartProvider>
-                        <TooltipProvider>
-                          <Toaster />
-                          <Sonner position="top-right" closeButton={true} />
-                          <div className="flex flex-col min-h-screen bg-background text-foreground">
-                            <Navbar />
-                            <main className="flex-grow">
-                              <Suspense fallback={<PageLoader />}>
-                                <Routes>
-                                  {/* Public Routes */}
-                                  <Route path="/" element={<HomePage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/product/:id" element={<ProductDetailPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/cart" element={<CartPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/checkout" element={<CheckoutPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/men" element={<CategoryPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/women" element={<CategoryPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/trending" element={<CategoryPage />} errorElement={<RouteErrorBoundary />} />
-                                  
-                                  {/* Auth Routes */}
-                                  <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/signup" element={<SignupPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/forgot-password" element={<ForgotPasswordPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/reset-password" element={<ResetPasswordPage />} errorElement={<RouteErrorBoundary />} />
-                                  <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
-                                  
-                                  {/* Protected Routes */}
-                                  <Route
-                                    path="/profile"
-                                    element={<PrivateRoute><ProfilePage /></PrivateRoute>}
-                                    errorElement={<RouteErrorBoundary />}
-                                  />
-                                  <Route
-                                    path="/orders"
-                                    element={<PrivateRoute><OrdersPage /></PrivateRoute>}
-                                    errorElement={<RouteErrorBoundary />}
-                                  />
-                                  <Route
-                                    path="/orders/:orderId"
-                                    element={<PrivateRoute><OrderDetailPage /></PrivateRoute>}
-                                    errorElement={<RouteErrorBoundary />}
-                                  />
-                                  <Route
-                                    path="/payment-methods"
-                                    element={<PrivateRoute><PaymentMethodsPage /></PrivateRoute>}
-                                    errorElement={<RouteErrorBoundary />}
-                                  />
-                                  
-                                  <Route path="*" element={<NotFound />} />
-                                </Routes>
-                              </Suspense>
-                            </main>
-                            <Footer />
-                          </div>
-                        </TooltipProvider>
+                  <SocketProvider>
+                    <PaymentProvider>
+                      <OrderProvider>
+                        <CartProvider>
+                          <WishlistProvider>
+                            <TooltipProvider>
+                              <Sonner 
+                                position="bottom-right" 
+                                closeButton={true}
+                                expand={true}
+                                richColors={true}
+                              />
+                              <div className="flex flex-col min-h-screen bg-background text-foreground">
+                                <Navbar />
+                                <main className="flex-grow">
+                                  <Suspense fallback={<PageLoader />}>
+                                    <Routes>
+                                    {/* Public Routes */}
+                                    <Route path="/" element={<HomePage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/product/:id" element={<ProductDetailPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/cart" element={<CartPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/checkout" element={<CheckoutPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/men" element={<CategoryPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/women" element={<CategoryPage />} errorElement={<RouteErrorBoundary />} />                                    <Route path="/trending" element={<CategoryPage />} errorElement={<RouteErrorBoundary />} />
+                                    
+                                    {/* Auth Routes */}
+                                    <Route
+                                      path="/wishlist"
+                                      element={
+                                        <PrivateRoute>
+                                          <WishlistPage />
+                                        </PrivateRoute>
+                                      }
+                                      errorElement={<RouteErrorBoundary />}
+                                    />
+                                    <Route path="/login" element={<LoginPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/signup" element={<SignupPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/forgot-password" element={<ForgotPasswordPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/reset-password" element={<ResetPasswordPage />} errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/verify-email" element={<VerifyEmailPage />} errorElement={<RouteErrorBoundary />} />
+                                      {/* Protected Routes */}
+                                    <Route path="/profile" element={
+                                      <PrivateRoute>
+                                        <ProfilePage />
+                                      </PrivateRoute>
+                                    } errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/orders" element={
+                                      <PrivateRoute>
+                                        <OrdersPage />
+                                      </PrivateRoute>
+                                    } errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/orders/:id" element={
+                                      <PrivateRoute>
+                                        <OrderDetailPage />
+                                      </PrivateRoute>
+                                    } errorElement={<RouteErrorBoundary />} />
+                                    <Route path="/payment-methods" element={
+                                      <PrivateRoute>
+                                        <PaymentMethodsPage />
+                                      </PrivateRoute>
+                                    } errorElement={<RouteErrorBoundary />} />
+
+                                    {/* 404 Route */}
+                                    <Route path="*" element={<NotFound />} errorElement={<RouteErrorBoundary />} />
+                                  </Routes>
+                                </Suspense>
+                              </main>                              <Footer />
+                            </div>
+                            <Toaster />
+                          </TooltipProvider>
+                        </WishlistProvider>
                       </CartProvider>
                     </OrderProvider>
                   </PaymentProvider>
+                </SocketProvider>
                 </ProfileProvider>
               </AuthProvider>
             </QueryClientProvider>

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '@/components/ui/use-toast';
+import { toast } from 'sonner'; // Import toast from sonner
 import CartItem from '../components/CartItem';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
@@ -11,7 +11,6 @@ import { Separator } from '@/components/ui/separator';
 export function CartPage() {
   const { cartItems, getCartTotal } = useCart();
   const { isAuthenticated } = useAuth();
-  const { toast } = useToast();
   const navigate = useNavigate();
   const subtotal = getCartTotal();
   const shipping = subtotal > 0 ? 15.00 : 0;
@@ -20,11 +19,8 @@ export function CartPage() {
 
   const handleCheckoutClick = () => {
     if (!isAuthenticated) {
-      toast({
-        title: "Authentication Required",
-        description: "Please log in or sign up to proceed with checkout.",
-        variant: "destructive",
-      });
+      // Use sonner.toast.error
+      toast.error("Authentication Required: Please log in or sign up to proceed with checkout.");
       sessionStorage.setItem('returnUrl', '/checkout');
       navigate('/login');
       return;

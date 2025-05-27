@@ -1,8 +1,9 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { profileService } from '../services/ProfileService';
-import { AddressInput, PaymentMethodInput, Profile, UpdateProfileData } from '@/types/models';
-import { useToast } from '../components/ui/use-toast';
+import { profileService } from '@/services/ProfileService';
+import type { Profile, AddressInput, PaymentMethodInput, UpdateProfileData, PaginatedOrders } from '@/types/models';
+import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from './AuthContext';
 
 interface ProfileContextType {
   profile: Profile | null;
@@ -14,157 +15,253 @@ interface ProfileContextType {
   deleteAddress: (id: string) => Promise<void>;
   addPaymentMethod: (paymentMethod: PaymentMethodInput) => Promise<void>;
   deletePaymentMethod: (id: string) => Promise<void>;
+  orders: PaginatedOrders | null;
+  currentPage: number;
+  pageSize: number;
+  setCurrentPage: (page: number) => void;
+  setPageSize: (size: number) => void;
 }
 
 const ProfileContext = React.createContext<ProfileContextType | undefined>(undefined);
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(10);
 
+  // Profile query
   const {
     data: profile,
-    isLoading,
-    error,
-  } = useQuery<Profile, Error>({
+    isLoading: isProfileLoading,
+    error: profileError
+  } = useQuery({
     queryKey: ['profile'],
-    queryFn: () => profileService.getProfile(),
+    queryFn: profileService.getProfile,
+    enabled: isAuthenticated,
+    retry: false,
+    staleTime: 30000 // Consider data fresh for 30 seconds
   });
 
+  // Orders query
+  const {
+    data: orders,
+    isLoading: isOrdersLoading
+  } = useQuery({
+    queryKey: ['orders', currentPage],
+    queryFn: () => profileService.getOrders(currentPage, pageSize),
+    enabled: isAuthenticated && !!profile,
+    retry: false
+  });
+
+  // Mutations
   const updateProfileMutation = useMutation({
-    mutationFn: (data: UpdateProfileData) => profileService.updateProfile(data),
+    mutationFn: profileService.updateProfile,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast({
-        title: 'Profile updated',
-        description: 'Your profile has been successfully updated.',
+        title: 'Success',
+        description: 'Profile updated successfully'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to update profile',
-        description: error.message,
-        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to update profile',
+        variant: 'destructive'
       });
-    },
+    }
   });
 
   const addAddressMutation = useMutation({
-    mutationFn: (address: AddressInput) => profileService.addAddress(address),
+    mutationFn: profileService.addAddress,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast({
-        title: 'Address added',
-        description: 'Your address has been successfully added.',
+        title: 'Success',
+        description: 'Address added successfully'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to add address',
-        description: error.message,
-        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to add address',
+        variant: 'destructive'
       });
-    },
+    }
   });
 
   const updateAddressMutation = useMutation({
-    mutationFn: ({ id, address }: { id: string; address: AddressInput }) =>
+    mutationFn: ({ id, address }: { id: string; address: AddressInput }) => 
       profileService.updateAddress(id, address),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast({
-        title: 'Address updated',
-        description: 'Your address has been successfully updated.',
+        title: 'Success',
+        description: 'Address updated successfully'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to update address',
-        description: error.message,
-        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to update address',
+        variant: 'destructive'
       });
-    },
+    }
   });
 
   const deleteAddressMutation = useMutation({
-    mutationFn: (id: string) => profileService.deleteAddress(id),
+    mutationFn: profileService.deleteAddress,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast({
-        title: 'Address deleted',
-        description: 'Your address has been successfully deleted.',
+        title: 'Success',
+        description: 'Address deleted successfully'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to delete address',
-        description: error.message,
-        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to delete address',
+        variant: 'destructive'
       });
-    },
+    }
   });
 
   const addPaymentMethodMutation = useMutation({
-    mutationFn: (paymentMethod: PaymentMethodInput) =>
-      profileService.addPaymentMethod(paymentMethod),
+    mutationFn: profileService.addPaymentMethod,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast({
-        title: 'Payment method added',
-        description: 'Your payment method has been successfully added.',
+        title: 'Success',
+        description: 'Payment method added successfully'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to add payment method',
-        description: error.message,
-        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to add payment method',
+        variant: 'destructive'
       });
-    },
+    }
   });
 
   const deletePaymentMethodMutation = useMutation({
-    mutationFn: (id: string) => profileService.deletePaymentMethod(id),
+    mutationFn: profileService.deletePaymentMethod,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast({
-        title: 'Payment method deleted',
-        description: 'Your payment method has been successfully deleted.',
+        title: 'Success',
+        description: 'Payment method deleted successfully'
       });
     },
     onError: (error: Error) => {
       toast({
-        title: 'Failed to delete payment method',
-        description: error.message,
-        variant: 'destructive',
+        title: 'Error',
+        description: error.message || 'Failed to delete payment method',
+        variant: 'destructive'
       });
-    },
+    }
   });
 
-  const value: ProfileContextType = {
+  const handlePageChange = React.useCallback((page: number) => {
+    setCurrentPage(page);
+  }, []);
+
+  const handlePageSizeChange = React.useCallback((size: number) => {
+    setCurrentPage(1);
+    setPageSize(size);
+  }, []);
+
+  const contextValue = React.useMemo(() => ({
     profile: profile ?? null,
-    isLoading,
-    error: error ?? null,    updateProfile: async (data: UpdateProfileData) => {
+    isLoading: isProfileLoading || isOrdersLoading,
+    error: profileError ?? null,
+    updateProfile: async (data: UpdateProfileData) => {
+      if (!isAuthenticated) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to update your profile',
+          variant: 'destructive'
+        });
+        return;
+      }
       await updateProfileMutation.mutateAsync(data);
     },
     addAddress: async (address: AddressInput) => {
+      if (!isAuthenticated) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to add an address',
+          variant: 'destructive'
+        });
+        return;
+      }
       await addAddressMutation.mutateAsync(address);
     },
     updateAddress: async (id: string, address: AddressInput) => {
+      if (!isAuthenticated) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to update an address',
+          variant: 'destructive'
+        });
+        return;
+      }
       await updateAddressMutation.mutateAsync({ id, address });
     },
     deleteAddress: async (id: string) => {
+      if (!isAuthenticated) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to delete an address',
+          variant: 'destructive'
+        });
+        return;
+      }
       await deleteAddressMutation.mutateAsync(id);
     },
     addPaymentMethod: async (paymentMethod: PaymentMethodInput) => {
+      if (!isAuthenticated) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to add a payment method',
+          variant: 'destructive'
+        });
+        return;
+      }
       await addPaymentMethodMutation.mutateAsync(paymentMethod);
     },
     deletePaymentMethod: async (id: string) => {
+      if (!isAuthenticated) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please log in to delete a payment method',
+          variant: 'destructive'
+        });
+        return;
+      }
       await deletePaymentMethodMutation.mutateAsync(id);
     },
-  };
+    orders: orders ?? null,
+    currentPage,
+    pageSize,
+    setCurrentPage: handlePageChange,
+    setPageSize: handlePageSizeChange
+  }), [
+    profile, isProfileLoading, isOrdersLoading, profileError, orders,
+    currentPage, pageSize, isAuthenticated, toast,
+    handlePageChange, handlePageSizeChange,
+    updateProfileMutation, addAddressMutation, updateAddressMutation,
+    deleteAddressMutation, addPaymentMethodMutation, deletePaymentMethodMutation
+  ]);
 
-  return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
+  return (
+    <ProfileContext.Provider value={contextValue}>
+      {children}
+    </ProfileContext.Provider>
+  );
 }
 
 export function useProfile() {

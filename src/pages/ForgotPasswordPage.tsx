@@ -36,10 +36,16 @@ export default function ForgotPasswordPage() {
   const onSubmit = async (data: ForgotPasswordFormValues) => {
     try {
       await forgotPassword(data.email);
-      toast.success('Password reset instructions have been sent to your email');
+      toast.success('Password reset instructions have been sent to your email', {
+        description: 'Please check your inbox and spam folder',
+        duration: 6000,
+      });
       form.reset();
     } catch (err) {
       console.error('Forgot password error:', err);
+      toast.error('Failed to send reset instructions', {
+        description: error || 'Please try again later',
+      });
     }
   };
   

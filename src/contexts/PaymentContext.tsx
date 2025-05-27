@@ -1,86 +1,117 @@
-import React, { createContext, useContext } from 'react';
-import { profileService } from '@/services/profile';
-import type { PaymentMethod, PaymentMethodInput, UpdateProfileData } from '@/types/models';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAuth } from './AuthContext';
+import { paymentService } from '@/services/payment';
+import type { Transaction } from '@/types/payment';
+import { socketService } from '@/services/socket.service';
 
 interface PaymentContextType {
-  paymentMethods: PaymentMethod[];
+  transactions: Transaction[];
   isLoading: boolean;
-  error: Error | null;
-  addPaymentMethod: (data: PaymentMethodInput) => Promise<PaymentMethod>;
-  removePaymentMethod: (id: string) => Promise<void>;
-  setDefaultPaymentMethod: (id: string) => Promise<void>;
+  error: string | null;
+  initializePayment: (amount: number) => Promise<string>;
+  verifyPayment: (reference: string) => Promise<boolean>;
+  refreshTransactions: () => Promise<void>;
 }
 
 const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
 
 export function PaymentProvider({ children }: { children: React.ReactNode }) {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // Get profile data which includes payment methods
-  const {
-    data: profile,
-    isLoading,
-    error
-  } = useQuery({
-    queryKey: ['profile'],
-    queryFn: profileService.getProfile,
-    select: (data) => data.paymentMethods,
-  });
+  const refreshTransactions = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      setIsLoading(true);
+      const response = await paymentService.getTransactions();
+      setTransactions(response.transactions);
+      setError(null);
+    } catch (err) {
+      setError('Failed to load transactions');
+      console.error('Error loading transactions:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
 
-  // Add payment method mutation
-  const addMutation = useMutation({
-    mutationFn: profileService.addPaymentMethod,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast.success('Payment method added successfully');
-    },
-    onError: () => {
-      toast.error('Failed to add payment method');
-    },
-  });
+  const initializePayment = useCallback(async (amount: number) => {
+    if (!user?.email) throw new Error('User email is required');
 
-  // Remove payment method mutation
-  const removeMutation = useMutation({
-    mutationFn: profileService.deletePaymentMethod,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast.success('Payment method removed successfully');
-    },
-    onError: () => {
-      toast.error('Failed to remove payment method');
-    },
-  });
-  // Set default payment method mutation
-  const setDefaultMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const methods = profile?.map(method => ({
-        ...method,
-        isDefault: method.id === id
-      }));
-      const updateData: UpdateProfileData = {
-        defaultPaymentMethodId: id
-      };
-      await profileService.updateProfile(updateData);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast.success('Default payment method updated');
-    },
-    onError: () => {
-      toast.error('Failed to update default payment method');
-    },
-  });
+    try {
+      const response = await paymentService.initializePayment({
+        email: user.email,
+        amount,
+        metadata: {
+          userId: user.id
+        }
+      });
+      return response.data.authorization_url;
+    } catch (err) {
+      setError('Failed to initialize payment');
+      throw err;
+    }
+  }, [user]);
+
+  const verifyPayment = useCallback(async (reference: string) => {
+    try {
+      const response = await paymentService.verifyPayment(reference);
+      if (response.status) {
+        await refreshTransactions();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      setError('Failed to verify payment');
+      return false;
+    }
+  }, [refreshTransactions]);
+
+  // Setup socket listeners for real-time payment updates
+  useEffect(() => {
+    if (!socketService.getState().connected) return;
+
+    const handlePaymentUpdate = (transaction: Transaction) => {
+      setTransactions(prev => {
+        const index = prev.findIndex(t => t.reference === transaction.reference);
+        if (index === -1) return [...prev, transaction];
+        const updated = [...prev];
+        updated[index] = transaction;
+        return updated;
+      });
+
+      toast.success(`Payment ${transaction.status}: ${transaction.reference}`);
+
+      // Invalidate queries to refresh related data
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    };    socketService.on('payment:update', handlePaymentUpdate);
+
+    return () => {
+      socketService.off('payment:update', handlePaymentUpdate);
+    };
+  }, [queryClient]);
+
+  // Load initial transactions
+  useEffect(() => {
+    if (user && socketService.getState().connected) {
+      refreshTransactions();
+    }
+  }, [user, refreshTransactions]);
 
   return (
     <PaymentContext.Provider
-      value={{        paymentMethods: profile || [],
-        isLoading: isLoading || addMutation.isPending || removeMutation.isPending || setDefaultMutation.isPending,
-        error: error as Error | null,
-        addPaymentMethod: (data) => addMutation.mutateAsync(data),
-        removePaymentMethod: (id) => removeMutation.mutateAsync(id),
-        setDefaultPaymentMethod: (id) => setDefaultMutation.mutateAsync(id),
+      value={{
+        transactions,
+        isLoading,
+        error,
+        initializePayment,
+        verifyPayment,
+        refreshTransactions,
       }}
     >
       {children}

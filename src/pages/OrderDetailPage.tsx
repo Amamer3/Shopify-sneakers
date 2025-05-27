@@ -1,139 +1,181 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useOrders } from '@/contexts/OrderContext';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { useOrders } from '../contexts/OrderContext';
+import { Button } from '../components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
+import { ArrowLeft, Printer, Bell, BellOff, RefreshCw, Package, Truck } from 'lucide-react';
 import { format } from 'date-fns';
-import { printOrder } from '@/utils/export';
+import { printOrder } from '../utils/export';
+import { Separator } from '../components/ui/separator';
+import { Progress } from '../components/ui/progress';
+import type { ExtendedOrder } from '../types/api';
+import type { Order } from '../types/models';
 
-export function OrderDetailPage() {
-  const { orderId } = useParams<{ orderId: string }>();
+const orderStatusSteps = {
+  'pending': 0,
+  'processing': 25,
+  'shipped': 50,
+  'out-for-delivery': 75,
+  'delivered': 100,
+  'cancelled': -1
+};
+
+const orderStatusIcons = {
+  'pending': Package,
+  'processing': RefreshCw,
+  'shipped': Truck,
+  'out-for-delivery': Truck,
+  'delivered': Package,
+  'cancelled': BellOff
+};
+
+const OrderDetailPage: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getOrderById } = useOrders();
-  const order = getOrderById(orderId || '');
+  const { getOrderById, trackOrder } = useOrders();
+  const order = id ? getOrderById(id) : undefined;
+
+  useEffect(() => {
+    if (!order) {
+      navigate('/orders', { replace: true });
+    }
+  }, [order, navigate]);
 
   if (!order) {
-    return (
-      <div className="container mx-auto px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold mb-4">Order Not Found</h1>
-        <p className="text-muted-foreground mb-8">The order you're looking for doesn't exist.</p>
-        <Button onClick={() => navigate('/orders')}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Orders
-        </Button>
-      </div>
-    );
+    return null;
   }
 
+  const handlePrint = () => {
+    // Convert ExtendedOrder to Order type for printing
+    const printableOrder: Order = {
+      ...order,
+      shippingAddress: {
+        ...order.shippingAddress,
+        street: order.shippingAddress.line1,
+        zipCode: order.shippingAddress.postalCode,
+      }
+    };
+    printOrder(printableOrder);
+  };
+  const getStatusColor = (status: string): "default" | "secondary" | "destructive" | "outline" => {
+    switch (status.toLowerCase()) {
+      case 'delivered':
+        return 'secondary';
+      case 'shipped':
+      case 'out-for-delivery':
+        return 'outline';
+      case 'processing':
+        return 'secondary';
+      case 'cancelled':
+        return 'destructive';
+      default:
+        return 'default';
+    }
+  };
+
+  const StatusIcon = orderStatusIcons[order.status] || Package;
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="container mx-auto py-8 px-4">
+      <div className="flex items-center justify-between mb-6">
         <Button variant="ghost" onClick={() => navigate('/orders')}>
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back to Orders
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Orders
         </Button>
-        <Button variant="outline" onClick={() => printOrder(order)}>
-          <Printer className="mr-2 h-4 w-4" /> Print Order
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="mr-2 h-4 w-4" />
+            Print Order
+          </Button>
+          <Button onClick={() => trackOrder(order.id)}>
+            <Bell className="mr-2 h-4 w-4" />
+            Track Order
+          </Button>
+        </div>
       </div>
 
-      <Card className="mb-8">
+      <Card className="mb-6">
         <CardHeader>
-          <div className="flex justify-between items-start">
+          <CardTitle className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl">Order #{order.id}</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Placed on {format(new Date(order.date), 'PPP')}
-              </p>
+              Order #{order.orderNumber}
+              <span className="text-sm text-muted-foreground ml-2">
+                {format(new Date(order.date), 'PPP')}
+              </span>
             </div>
-            <Badge
-              variant={
-                order.status === 'delivered'
-                  ? 'default'
-                  : order.status === 'cancelled'
-                  ? 'destructive'
-                  : 'secondary'
-              }
-            >
-              {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+            <Badge variant={getStatusColor(order.status)}>
+              <StatusIcon className="mr-2 h-4 w-4" />
+              {order.status}
             </Badge>
-          </div>
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-6">
-            {/* Order Items */}
+          <div className="mb-6">
+            <Progress value={orderStatusSteps[order.status]} className="mb-2" />
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Order Placed</span>
+              <span>Processing</span>
+              <span>Shipped</span>
+              <span>Delivered</span>
+            </div>
+          </div>
+          
+          <div className="grid gap-6 md:grid-cols-2">
             <div>
-              <h3 className="font-semibold mb-4">Items</h3>
-              <div className="divide-y">
-                {order.items.map((item) => (
-                  <div key={item.id} className="py-4 flex justify-between items-center">
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-16 h-16 object-cover rounded"
-                      />
-                      <div>
-                        <p className="font-medium">{item.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {item.size && `Size: ${item.size}`}
-                          {item.color && ` • Color: ${item.color}`}
-                        </p>
-                        <p className="text-sm">Qty: {item.quantity}</p>
-                      </div>
-                    </div>
-                    <p className="font-medium">${(item.price * item.quantity).toFixed(2)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Order Summary */}
-            <div className="border-t pt-6">
-              <div className="flex justify-between mb-2">
-                <span>Subtotal</span>
-                <span>${order.total.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between mb-2 text-muted-foreground">
-                <span>Shipping</span>
-                <span>Free</span>
-              </div>
-              <div className="flex justify-between font-bold text-lg">
-                <span>Total</span>
-                <span>${order.total.toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Shipping Information */}
-            <div className="border-t pt-6">
-              <h3 className="font-semibold mb-4">Shipping Information</h3>
-              <p>{order.shippingAddress.street}</p>
-              <p>
-                {order.shippingAddress.city}, {order.shippingAddress.state}{' '}
-                {order.shippingAddress.zipCode}
-              </p>
+              <h3 className="font-semibold mb-2">Shipping Address</h3>
+              <p>{order.shippingAddress.name}</p>
+              <p>{order.shippingAddress.line1}</p>
+              {order.shippingAddress.line2 && <p>{order.shippingAddress.line2}</p>}
+              <p>{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</p>
               <p>{order.shippingAddress.country}</p>
-              {order.trackingNumber && (
-                <p className="mt-4">
-                  <span className="font-medium">Tracking Number:</span> {order.trackingNumber}
-                </p>
-              )}
+              {order.shippingAddress.phone && <p>{order.shippingAddress.phone}</p>}
             </div>
+            <div>
+              <h3 className="font-semibold mb-2">Payment Method</h3>
+              <p>{order.paymentMethod.type}</p>
+              <p>•••• {order.paymentMethod.last4}</p>
+              <p>Expires {order.paymentMethod.expiryMonth}/{order.paymentMethod.expiryYear}</p>
+            </div>
+          </div>
 
-            {/* Payment Information */}
-            <div className="border-t pt-6">
-              <h3 className="font-semibold mb-4">Payment Information</h3>
-              <p>
-                {order.paymentMethod.type.charAt(0).toUpperCase() +
-                  order.paymentMethod.type.slice(1)}
-                {order.paymentMethod.last4 && ` ending in ${order.paymentMethod.last4}`}
-              </p>
+          <Separator className="my-6" />
+
+          <div className="space-y-4">
+            {order.items.map(item => (
+              <div key={item.id} className="flex items-center gap-4">
+                <img src={item.image} alt={item.name} className="w-16 h-16 object-cover rounded" />
+                <div className="flex-1">
+                  <h4 className="font-medium">{item.name}</h4>
+                  <p className="text-sm text-muted-foreground">
+                    {item.quantity} × ${item.price.toFixed(2)}
+                  </p>
+                  {item.size && <p className="text-sm">Size: {item.size}</p>}
+                  {item.color && <p className="text-sm">Color: {item.color}</p>}
+                </div>
+                <div className="text-right">
+                  <p className="font-medium">${(item.quantity * item.price).toFixed(2)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <Separator className="my-6" />          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>${order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2)}</span>
+            </div>
+            <Separator className="my-2" />
+            <div className="flex justify-between font-medium">
+              <span>Total</span>
+              <span>${order.total.toFixed(2)}</span>
             </div>
           </div>
         </CardContent>
       </Card>
     </div>
   );
-}
+};
 
 export default OrderDetailPage;

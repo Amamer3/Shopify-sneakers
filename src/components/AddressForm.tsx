@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { LoadingButton } from "@/components/ui/loading-button"
 
 const addressSchema = z.object({
   street: z.string().min(1, "Street address is required"),
@@ -21,9 +22,10 @@ interface AddressFormProps {
   onSubmit: (data: AddressFormData) => void
   onCancel: () => void
   defaultValues?: Partial<AddressFormData>
+  isProcessing?: boolean
 }
 
-export function AddressForm({ onSubmit, onCancel, defaultValues }: AddressFormProps) {
+export function AddressForm({ onSubmit, onCancel, defaultValues, isProcessing }: AddressFormProps) {
   const form = useForm<AddressFormData>({
     resolver: zodResolver(addressSchema),
     defaultValues: {
@@ -177,7 +179,9 @@ export function AddressForm({ onSubmit, onCancel, defaultValues }: AddressFormPr
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit">Save Address</Button>
+          <LoadingButton isLoading={isProcessing} type="submit">
+            Save Address
+          </LoadingButton>
         </div>
       </form>
     </Form>

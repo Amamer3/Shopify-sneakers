@@ -7,15 +7,24 @@ import { VitePWA } from 'vite-plugin-pwa';
 import compression from 'vite-plugin-compression';
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
-  server: {
-    host: "::",
-    port: 8080,
+export default defineConfig(({ mode }) => ({  server: {
+    host: "localhost",
+    port: 8080,    proxy: {
+      '^/api/.*': {
+        target: 'https://shopify-server-ws3z.onrender.com',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+    },
   },
   plugins: [
     react(),
     mode === 'development' && componentTagger(),
-    compression(), // Gzip compression
+    compression(), 
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
