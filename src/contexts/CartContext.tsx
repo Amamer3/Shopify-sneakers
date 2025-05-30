@@ -1,430 +1,300 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { ShoppingCart, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { ShoppingCart, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { useSocket } from './SocketContext';
-import { api } from '../lib/api';
+import { cartService, type Cart, type CartItem, type CartProduct } from '../services/cart';
 import { logger } from '../lib/logger';
+import { getProductById } from '../data/products';
+import type { Product as DataProduct } from '../data/products';
+import {
+  getStoredCart,
+  storeCart,
+  storeGuestId,
+  generateGuestId,
+  calculateCartTotals,
+  clearCartStore,
+  getCartItemCount,
+  findCartItem
+} from '../lib/cartStore';
 
-export interface Product {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  stockLevel: number;
-  image: string;
-}
-
-export interface CartItem {
-  product: Product;
-  quantity: number;
-}
-
-interface CartState {
-  items: CartItem[];
-  total: number;
-  loading: boolean;
-  lastUpdated: number;
-  syncing: boolean;
-}
-
+// Context value type
 interface CartContextValue {
   items: CartItem[];
-  total: number;
-  addItem: (product: Product, quantity?: number) => Promise<void>;
+  totalItems: number;
+  totalPrice: number;
+  isLoading: boolean;
+  loadingStates: {
+    fetching: boolean;
+    adding: boolean;
+    removing: boolean;
+    updating: boolean;
+    clearing: boolean;
+  };
+  isSyncing: boolean;
+  addToCart: (productId: string, quantity?: number) => Promise<void>;
   removeItem: (productId: string) => Promise<void>;
   updateQuantity: (productId: string, quantity: number) => Promise<void>;
   clearCart: () => Promise<void>;
-  isLoading: boolean;
-  isSyncing: boolean;
 }
 
 const CartContext = createContext<CartContextValue | undefined>(undefined);
 
-const CART_STORAGE_KEY = 'sneaker-store-cart';
-const SYNC_DEBOUNCE_TIME = 500; // ms
+// Empty cart state
+const EMPTY_CART: Cart = {
+  id: '',
+  userId: '',
+  items: [],
+  totalItems: 0,
+  totalPrice: 0,
+  updatedAt: new Date().toISOString(),
+  status: 'active'
+};
+
+// Helper to convert data product to cart product
+const toCartProduct = (product: DataProduct): CartProduct => ({
+  id: product.id,
+  name: product.name,
+  price: product.price,
+  image: product.image,
+  sku: product.id, // Use ID as SKU for demo
+  stockLevel: 10, // Default stock level for demo
+});
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<CartState>({
-    items: [],
-    total: 0,
-    loading: false,
-    lastUpdated: Date.now(),
-    syncing: false,
+  const { isAuthenticated, user } = useAuth();
+  const [cart, setCart] = useState<Cart>({ ...EMPTY_CART });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [loadingStates, setLoadingStates] = useState({
+    fetching: false,
+    adding: false,
+    removing: false,
+    updating: false,
+    clearing: false
   });
 
-  const { isAuthenticated, user } = useAuth();
-  const { addListener, sendEvent } = useSocket();
+  // Calculate cart totals
+  const calculateTotals = (items: CartItem[]): { totalItems: number; totalPrice: number } => {
+    return items.reduce((acc, item) => ({
+      totalItems: acc.totalItems + item.quantity,
+      totalPrice: acc.totalPrice + (item.product.price * item.quantity)
+    }), { totalItems: 0, totalPrice: 0 });
+  };
 
-  // Load cart from storage or server
-  useEffect(() => {
-    const loadCart = async () => {
-      if (!isAuthenticated) {
-        const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-        if (savedCart) {
-          try {
-            const parsedCart = JSON.parse(savedCart);
-            setState((prev) => ({
-              ...prev,
-              items: parsedCart.items,
-              total: parsedCart.total,
-              lastUpdated: Date.now(),
-            }));
-          } catch (error) {
-            logger.error('Failed to load cart from storage:', error);
-          }
-        }
+  // Fetch or restore cart
+  const fetchCart = useCallback(async () => {
+    if (!isAuthenticated || !user) {
+      const { cart: storedCart } = getStoredCart();
+      if (storedCart) {
+        setCart(storedCart);
+        setIsLoading(false);
         return;
       }
 
-      try {
-        setState((prev) => ({ ...prev, syncing: true }));
-        const response = await api.get('/cart');
-        const serverCart = response.data;
-
-        setState((prev) => ({
-          ...prev,
-          items: serverCart.items,
-          total: serverCart.total,
-          lastUpdated: Date.now(),
-          syncing: false,
-        }));
-      } catch (error) {
-        logger.error('Failed to sync cart with server:', error);
-        setState((prev) => ({ ...prev, syncing: false }));
-        toast.error('Failed to sync cart with server');
-      }
-    };
-
-    loadCart();
-  }, [isAuthenticated]);
-
-  // Save cart to localStorage when it changes
-  useEffect(() => {
-    if (!isAuthenticated) {
-      localStorage.setItem(
-        CART_STORAGE_KEY,
-        JSON.stringify({
-          items: state.items,
-          total: state.total,
-        })
-      );
-    }
-  }, [state.items, state.total, isAuthenticated]);
-
-  // Set up real-time listeners
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    const cleanupFunctions: Array<() => void> = [];
-
-    if (addListener) {
-      cleanupFunctions.push(
-        addListener('product:stockUpdate', handleStockUpdate),
-        addListener('product:priceUpdate', (productId: string, newPrice: number) => {
-          handlePriceUpdate(productId, newPrice);
-        }),
-        addListener('cart:updated', (userId: string, cartData: any) => {
-          if (userId === user?.id) handleCartUpdate(cartData);
-        }),
-        addListener('cart:stockWarning', handleStockWarning),
-        addListener('cart:error', handleCartError)
-      );
+      // Initialize empty guest cart
+      const guestCart: Cart = {
+        ...EMPTY_CART,
+        id: `guest_${generateGuestId()}`,
+        status: 'active'
+      };
+      storeCart(guestCart);
+      setCart(guestCart);
+      setIsLoading(false);
+      return;
     }
 
-    return () => {
-      cleanupFunctions.forEach(cleanup => cleanup && cleanup());
-    };
-  }, [isAuthenticated, user?.id, addListener]);
-
-  const handleStockUpdate = async (productId: string, stockLevel: number) => {
-    const item = state.items.find((i) => i.product.id === productId);
-    if (item && item.quantity > stockLevel) {
-      toast.warning(`Stock level updated for ${item.product.name}`, {
-        description: `Only ${stockLevel} items available`,
-        icon: <AlertTriangle className="h-4 w-4" />,
-      });
-      await updateQuantity(productId, Math.min(item.quantity, stockLevel));
-    }
-  };
-
-  const handlePriceUpdate = (productId: string, newPrice: number) => {
-    setState((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        item.product.id === productId
-          ? { ...item, product: { ...item.product, price: newPrice } }
-          : item
-      ),
-      lastUpdated: Date.now(),
-    }));
-    calculateTotal();
-  };
-
-  const handleCartUpdate = (cartData: { items: CartItem[]; total: number }) => {
-    setState((prev) => ({
-      ...prev,
-      items: cartData.items,
-      total: cartData.total,
-      lastUpdated: Date.now(),
-    }));
-  };
-
-  const handleStockWarning = (productId: string, availableStock: number) => {
-    const item = state.items.find((i) => i.product.id === productId);
-    if (item) {
-      toast.warning(`Limited stock for ${item.product.name}`, {
-        description: `Only ${availableStock} items remaining`,
-        icon: <AlertTriangle className="h-4 w-4" />,
-      });
-    }
-  };
-
-  const handleCartError = (error: { message: string; productId?: string }) => {
-    toast.error(error.message, {
-      icon: <XCircle className="h-4 w-4" />,
-    });
-
-    if (error.productId) {
-      removeItem(error.productId).catch(err => {
-        logger.error('Failed to remove item after error:', err);
-      });
-    }
-  };
-
-  const calculateTotal = () => {
-    const total = state.items.reduce(
-      (sum, item) => sum + item.product.price * item.quantity,
-      0
-    );
-    setState((prev) => ({ ...prev, total }));
-  };
-
-  const addItem = async (product: Product, quantity: number = 1) => {
+    // Fetch authenticated user's cart
     try {
-      setState((prev) => ({ ...prev, loading: true }));
-
-      // Validate stock level
-      const response = await api.get(`/products/${product.id}/stock`);
-      const availableStock = response.data.stockLevel;
-
-      if (quantity > availableStock) {
-        toast.error('Not enough stock available', {
-          icon: <XCircle className="h-4 w-4" />,
-        });
-        return;
-      }
-
-      const existingItem = state.items.find((i) => i.product.id === product.id);
-      const newQuantity = (existingItem?.quantity || 0) + quantity;
-
-      if (newQuantity > availableStock) {
-        toast.error('Requested quantity exceeds available stock', {
-          icon: <XCircle className="h-4 w-4" />,
-        });
-        return;
-      }
-
-      const updatedItems = existingItem
-        ? state.items.map((i) =>
-            i.product.id === product.id
-              ? { ...i, quantity: newQuantity }
-              : i
-          )
-        : [...state.items, { product, quantity }];
-
-      // Update server if authenticated
-      if (isAuthenticated) {
-        await api.post('/cart/items', {
-          productId: product.id,
-          quantity: newQuantity,
-        });
-
-        if (user?.id && sendEvent) {
-          sendEvent('cart:updated', user.id, {
-            items: updatedItems,
-            total: state.total,
-            operation: 'add',
-            productId: product.id,
-            quantity: newQuantity,
-          });
-        }
-      }
-
-      setState((prev) => ({
-        ...prev,
-        items: updatedItems,
-        lastUpdated: Date.now(),
-      }));
-
-      calculateTotal();
-
-      toast.success('Added to cart', {
-        description: product.name,
-        icon: <CheckCircle2 className="h-4 w-4" />,
-      });
+      setLoadingStates(prev => ({ ...prev, fetching: true }));
+      const userCart = await cartService.getCart();
+      setCart(userCart);
+      storeCart(userCart);
     } catch (error) {
-      logger.error('Failed to add item to cart:', error);
-      toast.error('Failed to add item to cart', {
-        icon: <XCircle className="h-4 w-4" />,
+      logger.error('Failed to fetch cart:', { error });
+      toast.error('Failed to load cart', {
+        description: 'Please try refreshing the page'
       });
     } finally {
-      setState((prev) => ({ ...prev, loading: false }));
+      setLoadingStates(prev => ({ ...prev, fetching: false }));
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, user]);
+
+  // Initialize cart
+  useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
+
+  // Handle cart operations
+  const addToCart = async (productId: string, quantity = 1) => {
+    if (!productId) {
+      toast.error('Invalid product', {
+        description: 'Could not add item to cart'
+      });
+      return;
+    }
+
+    try {
+      setLoadingStates(prev => ({ ...prev, adding: true }));
+      setIsSyncing(true);
+
+      if (!isAuthenticated) {
+        // Handle guest cart locally using product data
+        const dataProduct = getProductById(productId);
+        if (!dataProduct) {
+          throw new Error('Product not found');
+        }
+
+        const cartProduct = toCartProduct(dataProduct);
+        
+        setCart(prevCart => {
+          const existingItem = prevCart.items.find(item => item.productId === productId);
+          
+          if (existingItem) {
+            const updatedItems = prevCart.items.map(item =>
+              item.productId === productId
+                ? { ...item, quantity: item.quantity + quantity }
+                : item
+            );
+
+            const { totalItems, totalPrice } = calculateTotals(updatedItems);
+            const updatedCart: Cart = {
+              ...prevCart,
+              items: updatedItems,
+              totalItems,
+              totalPrice,
+              updatedAt: new Date().toISOString()
+            };
+            storeCart(updatedCart);
+            return updatedCart;
+          }
+
+          const newItem: CartItem = {
+            id: `${prevCart.id}_${productId}`,
+            productId,
+            product: cartProduct,
+            quantity,
+            addedAt: new Date().toISOString()
+          };
+
+          const updatedItems = [...prevCart.items, newItem];
+          const { totalItems, totalPrice } = calculateTotals(updatedItems);
+          const updatedCart: Cart = {
+            ...prevCart,
+            items: updatedItems,
+            totalItems,
+            totalPrice,
+            updatedAt: new Date().toISOString()
+          };
+          storeCart(updatedCart);
+          return updatedCart;
+        });
+
+        toast.success('Item added to cart', {
+          icon: <ShoppingCart className="h-4 w-4" />
+        });
+        return;
+      }
+
+      // Handle authenticated cart
+      const updatedCart = await cartService.addToCart(productId, quantity);
+      setCart(updatedCart);
+      storeCart(updatedCart);
+
+      toast.success('Item added to cart', {
+        icon: <ShoppingCart className="h-4 w-4" />
+      });
+    } catch (error: any) {
+      logger.error('Failed to add item to cart:', { error, productId, quantity });
+      
+      const errorMessage = error?.message === 'Product not found'
+        ? 'Product not found'
+        : error?.response?.status === 400
+        ? 'Invalid quantity or product'
+        : 'Failed to add to cart';
+
+      toast.error(errorMessage, {
+        icon: <AlertTriangle className="h-4 w-4" />,
+        description: 'Please try again'
+      });
+    } finally {
+      setLoadingStates(prev => ({ ...prev, adding: false }));
+      setIsSyncing(false);
     }
   };
 
   const removeItem = async (productId: string) => {
     try {
-      setState(prev => ({ ...prev, loading: true }));
+      setLoadingStates(prev => ({ ...prev, removing: true }));
+      setIsSyncing(true);
 
-      const itemToRemove = state.items.find(item => item.product.id === productId);
-      if (!itemToRemove) return;
+      const updatedCart = await cartService.removeFromCart(productId);
+      setCart(updatedCart);
+      storeCart(updatedCart);
 
-      // Update server if authenticated
-      if (isAuthenticated) {
-        await api.delete(`/cart/items/${productId}`);
-
-        if (user?.id && sendEvent) {
-          sendEvent('cart:updated', user.id, {
-            items: state.items.filter(item => item.product.id !== productId),
-            total: state.total,
-            operation: 'remove',
-            productId
-          });
-        }
-      }
-
-      setState(prev => ({
-        ...prev,
-        items: prev.items.filter(item => item.product.id !== productId),
-        lastUpdated: Date.now(),
-      }));
-
-      calculateTotal();
-
-      toast.success('Removed from cart', {
-        description: itemToRemove.product.name,
-        icon: <CheckCircle2 className="h-4 w-4" />,
-      });
+      toast.success('Item removed from cart');
     } catch (error) {
-      logger.error('Failed to remove item from cart:', error);
-      toast.error('Failed to remove item from cart', {
-        icon: <XCircle className="h-4 w-4" />,
-      });
+      logger.error('Failed to remove item from cart:', { error, productId });
+      toast.error('Failed to remove item');
     } finally {
-      setState(prev => ({ ...prev, loading: false }));
+      setLoadingStates(prev => ({ ...prev, removing: false }));
+      setIsSyncing(false);
     }
   };
 
   const updateQuantity = async (productId: string, quantity: number) => {
     try {
-      setState(prev => ({ ...prev, loading: true }));
+      setLoadingStates(prev => ({ ...prev, updating: true }));
+      setIsSyncing(true);
 
-      // Validate stock level
-      const response = await api.get(`/products/${productId}/stock`);
-      const availableStock = response.data.stockLevel;
-
-      if (quantity > availableStock) {
-        toast.error('Requested quantity exceeds available stock', {
-          icon: <XCircle className="h-4 w-4" />,
-        });
-        return;
-      }
-
-      const updatedItems = state.items.map(item =>
-        item.product.id === productId
-          ? { ...item, quantity }
-          : item
-      );
-
-      // Update server if authenticated
-      if (isAuthenticated) {
-        await api.put(`/cart/items/${productId}`, { quantity });
-
-        if (user?.id && sendEvent) {
-          sendEvent('cart:updated', user.id, {
-            items: updatedItems,
-            total: state.total,
-            operation: 'update',
-            productId,
-            quantity
-          });
-        }
-      }
-
-      setState(prev => ({
-        ...prev,
-        items: updatedItems,
-        lastUpdated: Date.now(),
-      }));
-
-      calculateTotal();
-
-      toast.success('Updated quantity', {
-        icon: <CheckCircle2 className="h-4 w-4" />,
-      });
+      const updatedCart = await cartService.updateCartItemQuantity(productId, quantity);
+      setCart(updatedCart);
+      storeCart(updatedCart);
     } catch (error) {
-      logger.error('Failed to update item quantity:', error);
-      toast.error('Failed to update quantity', {
-        icon: <XCircle className="h-4 w-4" />,
-      });
+      logger.error('Failed to update quantity:', { error, productId, quantity });
+      toast.error('Failed to update quantity');
     } finally {
-      setState(prev => ({ ...prev, loading: false }));
+      setLoadingStates(prev => ({ ...prev, updating: false }));
+      setIsSyncing(false);
     }
   };
 
   const clearCart = async () => {
     try {
-      setState(prev => ({ ...prev, loading: true }));
+      setLoadingStates(prev => ({ ...prev, clearing: true }));
+      setIsSyncing(true);
 
-      // Update server if authenticated
-      if (isAuthenticated) {
-        await api.delete('/cart');
+      const updatedCart = await cartService.clearCart();
+      setCart(updatedCart);
+      storeCart(updatedCart);
 
-        if (user?.id && sendEvent) {
-          sendEvent('cart:updated', user.id, {
-            items: [],
-            total: 0,
-            operation: 'clear'
-          });
-        }
-      }
-
-      setState(prev => ({
-        ...prev,
-        items: [],
-        total: 0,
-        lastUpdated: Date.now(),
-      }));
-
-      toast.success('Cart cleared', {
-        icon: <CheckCircle2 className="h-4 w-4" />,
-      });
+      toast.success('Cart cleared');
     } catch (error) {
-      logger.error('Failed to clear cart:', error);
-      toast.error('Failed to clear cart', {
-        icon: <XCircle className="h-4 w-4" />,
-      });
+      logger.error('Failed to clear cart:', { error });
+      toast.error('Failed to clear cart');
     } finally {
-      setState(prev => ({ ...prev, loading: false }));
+      setLoadingStates(prev => ({ ...prev, clearing: false }));
+      setIsSyncing(false);
     }
   };
 
   const value: CartContextValue = {
-    items: state.items,
-    total: state.total,
-    addItem,
+    items: cart.items,
+    totalItems: cart.totalItems,
+    totalPrice: cart.totalPrice,
+    isLoading,
+    isSyncing,
+    loadingStates,
+    addToCart,
     removeItem,
     updateQuantity,
-    clearCart,
-    isLoading: state.loading,
-    isSyncing: state.syncing,
+    clearCart
   };
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
+// Hook for using cart context
 export function useCart() {
   const context = useContext(CartContext);
   if (context === undefined) {

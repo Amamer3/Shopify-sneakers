@@ -12,44 +12,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Printer, Download } from 'lucide-react';
+import { ChevronRight, Printer, Download, AlertTriangle } from 'lucide-react';
 import { useOrders } from '@/contexts/OrderContext';
 import { OrderFilter } from '@/components/OrderFilter';
 import { format } from 'date-fns';
 import { exportToCSV, printOrder } from '@/utils/export';
-
-// Mock order data
-const mockOrders = [
-  {
-    id: 'ORD-1234',
-    date: '2023-05-10',
-    status: 'Delivered',
-    total: 329.95,
-    items: 3
-  },
-  {
-    id: 'ORD-1235',
-    date: '2023-04-22',
-    status: 'Processing',
-    total: 149.90,
-    items: 2
-  },
-  {
-    id: 'ORD-1236',
-    date: '2023-03-15',
-    status: 'Delivered',
-    total: 89.95,
-    items: 1
-  }
-];
+import { toast } from 'sonner';
 
 // Status badge color mapping
 const getStatusColor = (status: string) => {
   switch (status.toLowerCase()) {
     case 'delivered':
-      return 'default'; // or 'secondary' if you want a different color
+      return 'default';
     case 'processing':
-      return 'secondary'; // or 'outline'
+      return 'secondary';
+    case 'shipped':
+      return 'outline';
     case 'cancelled':
       return 'destructive';
     default:
@@ -60,7 +38,7 @@ const getStatusColor = (status: string) => {
 export function OrdersPage() {
   // Protect this route
   const { isLoading: authLoading } = useAuthRequired();
-  const { orders, isLoading: ordersLoading, filterOrders, sortOrders } = useOrders();
+  const { orders, isLoading: ordersLoading, error, filterOrders, sortOrders } = useOrders();
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedDateRange, setSelectedDateRange] = useState<{ start: Date; end: Date } | null>(null);
   const [selectedSort, setSelectedSort] = useState<{ by: 'date' | 'total' | 'status'; direction: 'asc' | 'desc' }>({
@@ -82,25 +60,54 @@ export function OrdersPage() {
   };
 
   const handleExport = () => {
-    if (orders?.items) {
-      exportToCSV(orders.items);
+    if (orders) {
+      try {
+        exportToCSV(orders);
+        toast.success('Orders exported successfully');
+      } catch (error) {
+        toast.error('Failed to export orders', { 
+          description: 'Please try again later',
+          icon: <AlertTriangle className="h-4 w-4" />
+        });
+      }
     }
   };
 
   const handlePrint = (orderId: string) => {
-    const order = orders?.items.find(o => o.id === orderId);
+    const order = orders?.find(o => o.id === orderId);
     if (order) {
-      printOrder(order);
+      try {
+        printOrder(order);
+        toast.success('Order sent to printer');
+      } catch (error) {
+        toast.error('Failed to print order', {
+          description: 'Please check your printer settings and try again',
+          icon: <AlertTriangle className="h-4 w-4" />
+        });
+      }
     }
   };
 
   // Get filtered orders
-  const filteredOrders = orders?.items ? filterOrders(selectedStatus, selectedDateRange) : [];
+  const filteredOrders = orders ? filterOrders(selectedStatus, selectedDateRange) : [];
   
   if (authLoading || ordersLoading) {
     return (
       <div className="container mx-auto px-4 py-16 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto px-4 py-16 flex flex-col items-center justify-center gap-4">
+        <AlertTriangle className="h-12 w-12 text-destructive" />
+        <h2 className="text-xl font-semibold">Failed to load orders</h2>
+        <p className="text-muted-foreground">{error.message || 'Please try again later'}</p>
+        <Button asChild variant="outline">
+          <Link to="/">Return Home</Link>
+        </Button>
       </div>
     );
   }

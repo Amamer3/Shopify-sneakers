@@ -1,49 +1,52 @@
+import { User } from './models';
+
+// Profile is an extension of User that includes additional profile-specific fields
+export interface Profile extends User {
+  // Additional profile-specific fields can be added here
+  addresses?: Address[];
+  paymentMethods?: PaymentMethod[];
+  preferences?: {
+    notifications: boolean;
+    newsletter: boolean;
+    language: string;
+    currency: string;
+    theme?: 'light' | 'dark' | 'system';
+  };
+}
+
 export interface Address {
   id: string;
+  type: 'shipping' | 'billing';
   street: string;
   city: string;
   state: string;
-  zipCode: string;
   country: string;
+  postalCode: string;
   isDefault?: boolean;
-  label?: string; // e.g., "Home", "Work"
 }
 
 export interface PaymentMethod {
   id: string;
-  type: 'card' | 'mobile_money';
-  last4?: string;
-  expiryDate?: string;
-  cardType?: string;
+  type: 'credit_card' | 'paypal';
   isDefault?: boolean;
-  providerName?: string; // For mobile money
-  phoneNumber?: string; // For mobile money
+  lastFour?: string;
+  expiryMonth?: string;
+  expiryYear?: string;
+  cardType?: string;
+  paypalEmail?: string;
 }
 
-export interface UserProfile {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  phoneNumber?: string;
-  addresses: Address[];
-  paymentMethods: PaymentMethod[];
-  createdAt: string;
-  updatedAt: string;
+export interface AddressInput extends Omit<Address, 'id'> {
+  id?: string;
 }
 
-export interface OrderSummary {
-  id: string;
-  date: string;
-  total: number;
-  status: string;
-  items: number;
+export interface PaymentMethodInput extends Omit<PaymentMethod, 'id'> {
+  id?: string;
 }
 
-export interface PaginatedOrders {
-  orders: OrderSummary[];
-  total: number;
-  currentPage: number;
-  totalPages: number;
-  pageSize: number;
+export interface UpdateProfileData {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  preferences?: Profile['preferences'];
 }

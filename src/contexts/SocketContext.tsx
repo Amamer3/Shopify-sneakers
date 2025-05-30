@@ -25,14 +25,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {  const [state, setState] = useState<SocketState>(socketService.getState());
   const { isAuthenticated } = useAuth();
   const token = getAuthToken();
-
   useEffect(() => {
     if (isAuthenticated && token) {
-      socketService.updateToken(token);
-      socketService.connect();
+      // Only attempt connection if we have both authentication and token
+      socketService.connect(token);
     } else {
+      // Ensure we're disconnected when not authenticated
       socketService.disconnect();
     }
+
+    // Always disconnect when component unmounts
+    return () => {
+      socketService.disconnect();
+    };
   }, [isAuthenticated, token]);
 
   useEffect(() => {

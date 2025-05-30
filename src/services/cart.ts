@@ -1,164 +1,124 @@
-import { getAuthHeaders } from './auth';
-import { Product } from './products';
+import { api } from '@/lib/api';
+import type { Product } from '@/types/models';
+import { logger } from '@/lib/logger';
 
-const API_VERSION = '/api';
+// Types
+export type CartProduct = Pick<Product, 'id' | 'name' | 'price' | 'sku' | 'stockLevel'> & {
+  image?: string;
+};
 
 export interface CartItem {
-  id: string;
-  product: Product;
+  id: string;          // Cart item ID (different from product ID)
+  productId: string;   // Product ID
+  product: CartProduct;
   quantity: number;
-  size?: string;
-  color?: string;
+  addedAt: string;
 }
 
 export interface Cart {
   id: string;
   userId: string;
   items: CartItem[];
-  subtotal: number;
-  total: number;
-  itemCount: number;
-  createdAt: string;
+  totalItems: number;
+  totalPrice: number;
   updatedAt: string;
+  status: 'active' | 'merged' | 'converted';
 }
 
-export interface AddToCartData {
-  productId: string;
-  quantity: number;
-  size?: string;
-  color?: string;
-}
+// Service class for encapsulating cart operations
+class CartService {
+  private readonly API_PREFIX = '/api/cart';
 
-export interface UpdateCartItemData {
-  quantity: number;
-  size?: string;
-  color?: string;
-}
-
-export const cartService = {
+  // Get the current user's cart
   async getCart(): Promise<Cart> {
-    const response = await fetch(`${API_VERSION}/cart`, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to fetch cart' }));
-      throw new Error(error.message || 'Failed to fetch cart');
-    }
-
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
-    }
-
-    return response.json();
-  },
-
-  async addToCart(data: AddToCartData): Promise<Cart> {
-    const response = await fetch(`${API_VERSION}/cart`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to add item to cart' }));
-      throw new Error(error.message || 'Failed to add item to cart');
-    }
-
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
-    }
-
-    return response.json();
-  },
-
-  async updateCartItem(productId: string, data: UpdateCartItemData): Promise<Cart> {
-    const response = await fetch(`${API_VERSION}/cart/${productId}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to update cart item' }));
-      throw new Error(error.message || 'Failed to update cart item');
-    }
-
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
-    }
-
-    return response.json();
-  },
-
-  async removeCartItem(productId: string): Promise<Cart> {
-    const response = await fetch(`${API_VERSION}/cart/${productId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to remove item from cart' }));
-      throw new Error(error.message || 'Failed to remove item from cart');
-    }
-
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
-    }
-
-    return response.json();
-  },
-
-  async clearCart(): Promise<void> {
-    const response = await fetch(`${API_VERSION}/cart`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to clear cart' }));
-      throw new Error(error.message || 'Failed to clear cart');
+    try {
+      const response = await api.get(`${this.API_PREFIX}/current`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to fetch cart:', { error });
+      throw error;
     }
   }
-};
+
+  // Add an item to cart
+  async addToCart(productId: string, quantity = 1, guestId?: string): Promise<Cart> {
+    try {
+      const endpoint = guestId 
+        ? `${this.API_PREFIX}/guest/${guestId}/items`
+        : `${this.API_PREFIX}/items`;
+
+      const response = await api.post(endpoint, {
+        productId,
+        quantity
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to add item to cart:', { error, productId, quantity, guestId });
+      throw error;
+    }
+  }
+
+  // Update item quantity
+  async updateCartItemQuantity(productId: string, quantity: number): Promise<Cart> {
+    try {
+      const response = await api.patch(`${this.API_PREFIX}/items/${productId}`, {
+        quantity
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to update cart item:', { error, productId, quantity });
+      throw error;
+    }
+  }
+
+  // Remove item from cart
+  async removeFromCart(productId: string): Promise<Cart> {
+    try {
+      const response = await api.delete(`${this.API_PREFIX}/items/${productId}`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to remove item from cart:', { error, productId });
+      throw error;
+    }
+  }
+
+  // Clear the entire cart
+  async clearCart(): Promise<Cart> {
+    try {
+      const response = await api.delete(`${this.API_PREFIX}`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to clear cart:', { error });
+      throw error;
+    }
+  }
+
+  // Merge guest cart with user cart after login
+  async mergeCart(guestCartId: string): Promise<Cart> {
+    try {
+      const response = await api.post(`${this.API_PREFIX}/merge`, {
+        guestCartId
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to merge carts:', { error, guestCartId });
+      throw error;
+    }
+  }
+
+  // Get cart for guest user or create new one
+  async getOrCreateGuestCart(guestId: string): Promise<Cart> {
+    try {
+      const response = await api.post(`${this.API_PREFIX}/guest`, {
+        guestId
+      });
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to get/create guest cart:', { error, guestId });
+      throw error;
+    }
+  }
+}
+
+// Export singleton instance
+export const cartService = new CartService();

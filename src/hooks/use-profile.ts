@@ -1,12 +1,31 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { profileService } from '@/services/ProfileService';
-import { Profile, Address, PaymentMethod, PaginatedOrders, UpdateProfileData } from '@/types/models';
-import { useToast } from '@/components/ui/use-toast';
+import { profileService } from '../services/profile';
+import type { PaginatedOrders, Profile } from '../types/models';
+import type { UserProfile, ProfileServiceError, Address } from '../services/profile';
+import type { GetOrdersResponse } from '../types/api';
+import { toast } from 'sonner';
+
+const profileKeys = {
+  all: ['profile'] as const,
+  profile: () => [...profileKeys.all] as const,
+  orders: (page: number, pageSize: number) => [...profileKeys.all, 'orders', page, pageSize] as const,
+};
+
+export interface UpdateProfileData {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phoneNumber?: string;
+  preferredLanguage?: string;
+  marketingPreferences?: {
+    email: boolean;
+    sms: boolean;
+  };
+}
 
 export function useProfile() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -15,9 +34,22 @@ export function useProfile() {
     data: profile,
     isLoading: isLoadingProfile,
     error: profileError,
-  } = useQuery<Profile>({
-    queryKey: ['profile'],
-    queryFn: profileService.getProfile,
+    isError,
+  } = useQuery<UserProfile, Error>({
+    queryKey: profileKeys.profile(),
+    queryFn: async () => {
+      const profile = await profileService.getProfile();
+      return {
+        ...profile,
+        recentOrders: [], // Add missing required field
+      } as UserProfile;
+    },
+    retry: (failureCount, error) => {
+      if ((error as ProfileServiceError).status === 401) {
+        return false;
+      }
+      return failureCount < 3;
+    },
   });
 
   // Fetch paginated orders
@@ -26,122 +58,93 @@ export function useProfile() {
     isLoading: isLoadingOrders,
     error: ordersError,
   } = useQuery<PaginatedOrders>({
-    queryKey: ['profile', 'orders', currentPage, pageSize],
-    queryFn: () => profileService.getOrders(currentPage, pageSize),
+    queryKey: profileKeys.orders(currentPage, pageSize),
+    queryFn: async () => {
+      const data = await profileService.getOrders(currentPage, pageSize) as GetOrdersResponse;
+      return {
+        items: data.orders,
+        total: data.pagination.total,
+        page: data.pagination.page,
+        pageSize: data.pagination.pageSize,
+        totalPages: data.pagination.totalPages,
+      };
+    },
+    enabled: !!profile?.id,
   });
 
   // Update profile mutation
-  const updateProfileMutation = useMutation({
-    mutationFn: profileService.updateProfile,
-    onSuccess: (data) => {
-      queryClient.setQueryData(['profile'], data);
-      toast({
-        title: 'Profile Updated',
-        description: 'Your profile has been successfully updated.',
+  const {
+    mutate: updateProfileData,
+    isPending: isUpdating,
+  } = useMutation<UserProfile, Error, UpdateProfileData>({
+    mutationFn: async (data) => {
+      const updated = await profileService.updateProfile(data);
+      return {
+        ...updated,
+        recentOrders: profile?.recentOrders ?? [],
+      } as UserProfile;
+    },
+    onSuccess: (updatedProfile) => {
+      queryClient.setQueryData(profileKeys.profile(), updatedProfile);
+      toast.success('Profile updated', {
+        description: 'Your profile has been updated successfully',
       });
     },
-    onError: (error) => {
-      toast({
-        title: 'Error',
-        description: 'Failed to update profile. Please try again.',
-        variant: 'destructive',
+    onError: (err: Error) => {
+      toast.error('Update failed', {
+        description: err.message || 'Failed to update profile',
       });
     },
   });
 
   // Address mutations
   const addAddressMutation = useMutation({
-    mutationFn: profileService.addAddress,    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast({
-        title: 'Address Added',
-        description: 'Your new address has been saved.',
+    mutationFn: profileService.addAddress,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.profile() });
+      toast.success('Address added', {
+        description: 'Your new address has been saved',
       });
     },
   });
 
   const updateAddressMutation = useMutation({
     mutationFn: ({ id, address }: { id: string; address: Partial<Address> }) =>
-      profileService.updateAddress(id, address as any),    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast({
-        title: 'Address Updated',
-        description: 'Your address has been updated.',
+      profileService.updateAddress(id, address),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.profile() });
+      toast.success('Address updated', {
+        description: 'Your address has been updated successfully',
       });
     },
   });
 
   const deleteAddressMutation = useMutation({
-    mutationFn: profileService.deleteAddress,    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast({
-        title: 'Address Deleted',
-        description: 'The address has been removed.',
+    mutationFn: profileService.deleteAddress,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.profile() });
+      toast.success('Address deleted', {
+        description: 'The address has been removed',
       });
     },
   });
-
-  // Payment method mutations
-  const addPaymentMethodMutation = useMutation({
-    mutationFn: profileService.addPaymentMethod,    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast({
-        title: 'Payment Method Added',
-        description: 'Your new payment method has been saved.',
-      });
-    },
-  });
-
-  const deletePaymentMethodMutation = useMutation({
-    mutationFn: profileService.deletePaymentMethod,    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast({
-        title: 'Payment Method Deleted',
-        description: 'The payment method has been removed.',
-      });
-    },
-  });
-
-  // Pagination handlers
-  const handlePageChange = useCallback((page: number) => {
-    setCurrentPage(page);
-  }, []);
-
-  const handlePageSizeChange = useCallback((size: number) => {
-    setPageSize(size);
-    setCurrentPage(1); // Reset to first page when changing page size
-  }, []);
 
   return {
-    // Profile data and state
     profile,
     isLoadingProfile,
     profileError,
-    
-    // Orders data and state
+    isError,
     orders,
     isLoadingOrders,
     ordersError,
+    updateProfileData,
+    isUpdating,
     currentPage,
+    setCurrentPage,
     pageSize,
-    
-    // Profile mutations
-    updateProfile: updateProfileMutation.mutate,
-    isUpdatingProfile: updateProfileMutation.isPending,
-    
-    // Address mutations
-    addAddress: addAddressMutation.mutate,
-    updateAddress: updateAddressMutation.mutate,
-    deleteAddress: deleteAddressMutation.mutate,
-    isModifyingAddress: addAddressMutation.isPending || updateAddressMutation.isPending || deleteAddressMutation.isPending,
-    
-    // Payment method mutations
-    addPaymentMethod: addPaymentMethodMutation.mutate,
-    deletePaymentMethod: deletePaymentMethodMutation.mutate,
-    isModifyingPaymentMethod: addPaymentMethodMutation.isPending || deletePaymentMethodMutation.isPending,
-    
-    // Pagination handlers
-    handlePageChange,
-    handlePageSizeChange,
+    setPageSize,
+    addAddressMutation,
+    updateAddressMutation,
+    deleteAddressMutation,
   };
 }

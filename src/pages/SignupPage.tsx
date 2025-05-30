@@ -16,20 +16,16 @@ import {
 } from '@/components/ui/form';
 import { Loader, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Define type for useAuth hook
-interface AuthContextType {
-  signup: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
-  isLoading: boolean;
-  error: string | null;
-}
+import { handleApiError } from '../lib/tokenUtils';
+import { logger } from '../lib/logger';
 
 // Zod schema for form validation
 const signupSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
   email: z.string().email('Invalid email address'),
-  password: z.string()
+  password: z
+    .string()
     .min(8, 'Password must be at least 8 characters long')
     .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
     .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
@@ -38,13 +34,13 @@ const signupSchema = z.object({
   confirmPassword: z.string().min(1, 'Confirm your password'),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
-  path: ["confirmPassword"],
+  path: ['confirmPassword'],
 });
 
 type SignupFormValues = z.infer<typeof signupSchema>;
 
 export function SignupPage() {
-  const { signup, isLoading, error } = useAuth() as AuthContextType;
+  const { signup, isLoading, error } = useAuth();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -80,53 +76,65 @@ export function SignupPage() {
     };
     setPasswordRequirements(requirements);
 
-    // Calculate password strength
-    let score = 0;
-    if (requirements.minLength) score += 20;
-    if (requirements.lowercase) score += 20;
-    if (requirements.uppercase) score += 20;
-    if (requirements.number) score += 20;
-    if (requirements.specialChar) score += 20;
-    setPasswordStrength(score <= 40 ? 'Weak' : score <= 80 ? 'Medium' : 'Strong');
+    const score = Object.values(requirements).filter(Boolean).length;
+    setPasswordStrength(score <= 2 ? 'Weak' : score <= 3 ? 'Medium' : 'Strong');
   }, [password]);
 
-  // Map auth errors to user-friendly messages
-  const friendlyError = (error: string | null) => {
-    if (!error) return null;
-    switch (error) {
-      case 'This email is already registered.': // Add case for the 409 conflict message from backend
-        return 'This email is already registered.';
-      case 'auth/email-already-in-use':
-        return 'This email is already registered.';
-      case 'auth/invalid-email':
-        return 'Invalid email format.';
-      case 'auth/weak-password':
-        return 'Password is too weak.';
-      default:
-        return error; // Display the raw error message if no friendly mapping exists
-    }
-  };
-
   const onSubmit = async (data: SignupFormValues) => {
+    const loadingToast = toast.loading('Creating your account...');
+
     try {
-      // Show loading toast
-      const loadingToast = toast.loading('Creating your account...');
+      const success = await signup(data.email, data.password, data.firstName, data.lastName);
       
-      await signup(data.email, data.password, data.firstName, data.lastName);
-      
-      // Dismiss loading toast and show success
+      if (success) {
+        toast.dismiss(loadingToast);
+        toast.success('Account created!', {
+          description: 'Please check your email for verification.',
+        });
+        navigate('/login', {
+          state: {
+            email: data.email,
+            message: 'Registration successful! Please log in.',
+          },
+        });
+      } else {
+        throw new Error('Signup failed');
+      }
+    } catch (err: unknown) {
       toast.dismiss(loadingToast);
-      toast.success('Account created successfully!', {
-        description: `Welcome ${data.firstName}! You can now log in to your account.`
-      });
-      
-      // Navigate after a short delay to allow the user to see the success message
-      setTimeout(() => navigate('/'), 1500);
-    } catch (err: any) {
-      console.error('Signup error:', err);
-      toast.error('Failed to create account', {
-        description: friendlyError(err.code) || 'Please try again.'
-      });
+      const errorMessage = handleApiError(err, 'Failed to create account');
+      logger.error('Signup error:', { error: err, email: data.email });
+
+      if (errorMessage.includes('already registered') || errorMessage.includes('email-already-in-use')) {
+        toast.error('Email already registered', {
+          description: 'This email is already in use.',
+          action: {
+            label: 'Log in instead',
+            onClick: () =>
+              navigate('/login', {
+                state: {
+                  email: data.email,
+                  message: 'Please log in with your existing account.',
+                },
+              }),
+          },
+        });
+        form.setError('email', {
+          type: 'manual',
+          message: 'Email already registered',
+        });
+      } else {
+        toast.error('Registration failed', {
+          description: errorMessage,
+        });
+        form.setError('root', {
+          type: 'manual',
+          message: errorMessage,
+        });
+      }
+
+      form.setValue('password', '');
+      form.setValue('confirmPassword', '');
     }
   };
 
@@ -197,8 +205,8 @@ export function SignupPage() {
                       <div className="relative">
                         <Input
                           id="password"
-                          type={showPassword ? "text" : "password"}
-                          placeholder="••••••••"
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Enter your password"
                           {...field}
                           onChange={(e) => {
                             field.onChange(e);
@@ -211,7 +219,7 @@ export function SignupPage() {
                           size="sm"
                           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                           onClick={() => setShowPassword(!showPassword)}
-                          aria-label={showPassword ? "Hide password" : "Show password"}
+                          aria-label="Toggle password visibility"
                         >
                           {showPassword ? (
                             <EyeOff className="h-4 w-4 text-muted-foreground" />
@@ -221,39 +229,23 @@ export function SignupPage() {
                         </Button>
                       </div>
                     </FormControl>
-                    <FormMessage />
-                    <div className="text-sm mt-2">
+                    <div className="text-sm mt-2" role="status" aria-label="Password requirements status">
                       <p className="font-semibold">Password must contain:</p>
-                      <ul className="list-disc list-inside" role="list" aria-label="Password requirements">
-                        <li
-                          className={passwordRequirements.minLength ? 'text-green-600' : 'text-muted-foreground'}
-                          aria-checked={passwordRequirements.minLength}
-                        >
+                      <ul className="list-disc list-inside">
+                        <li className={passwordRequirements.minLength ? 'text-green-500' : 'text-muted-foreground'}>
                           At least 8 characters
                         </li>
-                        <li
-                          className={passwordRequirements.lowercase ? 'text-green-600' : 'text-muted-foreground'}
-                          aria-checked={passwordRequirements.lowercase}
-                        >
+                        <li className={passwordRequirements.lowercase ? 'text-green-500' : 'text-muted-foreground'}>
                           At least one lowercase letter
                         </li>
-                        <li
-                          className={passwordRequirements.uppercase ? 'text-green-600' : 'text-muted-foreground'}
-                          aria-checked={passwordRequirements.uppercase}
-                        >
+                        <li className={passwordRequirements.uppercase ? 'text-green-500' : 'text-muted-foreground'}>
                           At least one uppercase letter
                         </li>
-                        <li
-                          className={passwordRequirements.number ? 'text-green-600' : 'text-muted-foreground'}
-                          aria-checked={passwordRequirements.number}
-                        >
+                        <li className={passwordRequirements.number ? 'text-green-500' : 'text-muted-foreground'}>
                           At least one number
                         </li>
-                        <li
-                          className={passwordRequirements.specialChar ? 'text-green-600' : 'text-muted-foreground'}
-                          aria-checked={passwordRequirements.specialChar}
-                        >
-                          At least one special character (!@#$%^&amp;*(),.?&quot;:{ }|&lt;&gt;)
+                        <li className={passwordRequirements.specialChar ? 'text-green-500' : 'text-muted-foreground'}>
+                          At least one special character (!@#$%^&*(),.?[])
                         </li>
                       </ul>
                       <p className="mt-2">
@@ -261,16 +253,17 @@ export function SignupPage() {
                         <span
                           className={
                             passwordStrength === 'Weak'
-                              ? 'text-red-600'
+                              ? 'text-red-500'
                               : passwordStrength === 'Medium'
-                              ? 'text-yellow-600'
-                              : 'text-green-600'
+                              ? 'text-yellow-500'
+                              : 'text-green-500'
                           }
                         >
                           {passwordStrength}
                         </span>
                       </p>
                     </div>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
@@ -285,8 +278,8 @@ export function SignupPage() {
                       <div className="relative">
                         <Input
                           id="confirmPassword"
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="••••••••"
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          placeholder="Confirm your password"
                           {...field}
                         />
                         <Button
@@ -295,7 +288,7 @@ export function SignupPage() {
                           size="sm"
                           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                          aria-label="Toggle password confirmation visibility"
                         >
                           {showConfirmPassword ? (
                             <EyeOff className="h-4 w-4 text-muted-foreground" />
@@ -311,11 +304,15 @@ export function SignupPage() {
               />
 
               {error && (
-                <div className="text-destructive text-sm">{friendlyError(error)}</div>
+                <div className="text-destructive text-sm">{handleApiError(error, 'Registration error')}</div>
               )}
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? (
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading || form.formState.isSubmitting}
+              >
+                {(isLoading || form.formState.isSubmitting) ? (
                   <>
                     <Loader className="mr-2 h-4 w-4 animate-spin" />
                     Creating account...

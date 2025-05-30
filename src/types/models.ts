@@ -23,7 +23,7 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
-  role: 'user' | 'admin';
+  role: 'user';
   isEmailVerified: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -37,28 +37,26 @@ export interface User {
   metadata?: Record<string, any>;
 }
 
+// Alias Profile to User since they represent the same entity
+export type Profile = User;
+
 export interface OrderItem {
-  id: string;
   productId: string;
-  name: string;
-  description?: string;
   quantity: number;
   price: number;
+  name: string;
   size?: string;
   color?: string;
-  image: string;
 }
 
 export interface Address {
-  id: string;
-  name: string;
+  id?: string;
   street: string;
   city: string;
   state: string;
   zipCode: string;
   country: string;
-  phone?: string;
-  isDefault: boolean;
+  isDefault?: boolean;
 }
 
 export interface PaymentMethod {
@@ -74,20 +72,16 @@ export interface PaymentMethod {
 
 export interface Order {
   id: string;
-  orderNumber: string;
-  date: Date;
-  status: OrderStatus;
-  total: number;
+  userId: string;
   items: OrderItem[];
+  total: number;
+  status: OrderStatus;
   shippingAddress: Address;
-  paymentMethod: PaymentMethod;
+  paymentId: string;
+  createdAt: Date;
+  updatedAt: Date;
   trackingNumber?: string;
-  trackingHistory: Array<{
-    status: OrderStatus;
-    date: Date;
-    location?: string;
-    description: string;
-  }>;
+  metadata?: Record<string, any>;
 }
 
 export interface PaginatedOrders {
@@ -98,15 +92,12 @@ export interface PaginatedOrders {
   totalPages: number;
 }
 
-export interface Profile {
-  id: string;
-  email: string;
-  name: string;
-  phone?: string;
-  addresses: Address[];
-  paymentMethods: PaymentMethod[];
-  defaultAddressId?: string;
-  defaultPaymentMethodId?: string;
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 export interface UpdateProfileData {

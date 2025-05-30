@@ -1,32 +1,15 @@
-import { getAuthHeaders } from './auth';
-import { Product } from './products';
-
-const API_VERSION = '/api';
+import { api } from '@/lib/api';
+import { isAuthenticated } from '@/lib/tokenUtils';
+import { logger } from '@/lib/logger';
 
 export interface OrderItem {
-  id: string;
-  product: Product;
+  productId: string;
   quantity: number;
-  price: number;
-  size?: string;
-  color?: string;
-}
-
-export interface ShippingAddress {
-  street: string;
-  city: string;
-  state: string;
-  zipCode: string;
-  country: string;
-  isDefault?: boolean;
-}
-
-export interface PaymentDetails {
-  method: 'credit_card' | 'paypal' | 'stripe';
-  status: 'pending' | 'completed' | 'failed';
-  transactionId?: string;
-  last4?: string;
-  cardBrand?: string;
+  price?: number;
+  productDetails?: {
+    name: string;
+    image?: string;
+  };
 }
 
 export interface Order {
@@ -34,127 +17,83 @@ export interface Order {
   userId: string;
   items: OrderItem[];
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
-  subtotal: number;
-  tax: number;
-  shippingCost: number;
   total: number;
-  shippingAddress: ShippingAddress;
-  paymentDetails: PaymentDetails;
-  trackingNumber?: string;
+  shippingAddress: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface CreateOrderData {
-  items: Array<{
-    productId: string;
-    quantity: number;
-    size?: string;
-    color?: string;
-  }>;
-  shippingAddressId: string;
-  paymentMethodId: string;
+export interface GetOrdersResponse {
+  orders: Order[];
+  pagination: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
+}
+
+export interface CreateOrderRequest {
+  items: OrderItem[];
+  shippingAddress: string;
   notes?: string;
 }
 
-export interface OrdersResponse {
-  orders: Order[];
-  total: number;
-  page: number;
-  limit: number;
-}
+const ORDERS_API = '/api/orders';
+
+const EMPTY_ORDERS_RESPONSE: GetOrdersResponse = {
+  orders: [],
+  pagination: {
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 0
+  }
+};
 
 export const orderService = {
-  async getMyOrders(params?: {
-    page?: number;
-    limit?: number;
-    status?: Order['status'];
-  }): Promise<OrdersResponse> {
-    const queryParams = new URLSearchParams();
-    
-    if (params?.page) queryParams.append('page', params.page.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.status) queryParams.append('status', params.status);
-
-    const queryString = queryParams.toString();
-    const url = `${API_VERSION}/orders/my-orders${queryString ? `?${queryString}` : ''}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to fetch orders' }));
-      throw new Error(error.message || 'Failed to fetch orders');
-    }
-
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
-    }
-
-    return response.json();
+  // Get all orders (now accessible to authenticated users)
+  async getAllOrders(): Promise<Order[]> {
+    const response = await api.get(ORDERS_API);
+    return response.data;
   },
 
-  async getOrderById(orderId: string): Promise<Order> {
-    const response = await fetch(`${API_VERSION}/orders/${orderId}`, {
-      method: 'GET',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to fetch order' }));
-      throw new Error(error.message || 'Failed to fetch order');
+  // Get current user's orders
+  async getMyOrders(): Promise<GetOrdersResponse> {
+    if (!isAuthenticated()) {
+      return EMPTY_ORDERS_RESPONSE;
     }
 
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
+    try {
+      const response = await api.get('/api/orders/my-orders');
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to fetch orders:', error);
+      return EMPTY_ORDERS_RESPONSE;
     }
-
-    return response.json();
   },
 
-  async createOrder(data: CreateOrderData): Promise<Order> {
-    const response = await fetch(`${API_VERSION}/orders`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
+  // Get single order
+  async getOrder(orderId: string): Promise<Order> {
+    const response = await api.get(`${ORDERS_API}/${orderId}`);
+    return response.data;
+  },
 
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to create order' }));
-      throw new Error(error.message || 'Failed to create order');
-    }
+  // Create new order
+  async createOrder(orderData: CreateOrderRequest): Promise<Order> {
+    const response = await api.post(ORDERS_API, orderData);
+    return response.data;
+  },
 
-    if (!response.headers.get('content-type')?.includes('application/json')) {
-      throw new Error('Invalid response from server');
-    }
+  // Update order status
+  async updateOrderStatus(orderId: string, status: Order['status']): Promise<Order> {
+    const response = await api.put(`${ORDERS_API}/${orderId}/status`, { status });
+    return response.data;
+  },
 
-    return response.json();
+  // Delete order
+  async deleteOrder(orderId: string): Promise<void> {
+    await api.delete(`${ORDERS_API}/${orderId}`);
   }
 };

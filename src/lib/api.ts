@@ -1,161 +1,167 @@
-import axios, { AxiosError, InternalAxiosRequestConfig, AxiosHeaders } from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig, AxiosRequestHeaders } from 'axios';
 import { toast } from 'sonner';
 import { logger } from './logger';
-import { 
-  validateToken, 
-  TokenExpiredError, 
-  isTokenValidationCached,
-  cacheTokenValidation,
-  clearTokenValidation 
-} from './tokenUtils';
+import { AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY, USER_STORAGE_KEY, tokenApi, refreshAuthToken } from './tokenUtils';
+import type { User } from '@/types/models';
 
-// In development, we use relative URLs that will be handled by the dev server proxy
-// In production, we use the full URL from the environment variable
-// In development, we'll use the proxy through the dev server
-const baseURL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'https://shopify-server-ws3z.onrender.com');
+// Backend User type that matches server response
+export interface BackendUser {
+  uid: string;            // server uses uid instead of id
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: 'user';
+  isEmailVerified: boolean;
+  createdAt: string;      // server sends dates as ISO strings
+  updatedAt: string;
+  lastLoginAt?: string;
+  preferences?: {
+    notifications: boolean;
+    newsletter: boolean;
+    language: string;
+    currency: string;
+  };
+  metadata?: Record<string, any>;
+}
 
+// Request configuration type with retry and token
+interface RequestConfigWithRetry extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+  _retryCount?: number;
+  _originalToken?: string;
+  skipAuthRetry?: boolean;
+  headers: AxiosRequestHeaders;
+}
+
+// Constants
+const baseURL = import.meta.env.VITE_API_URL || 'https://shopify-server-ws3z.onrender.com';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
+const MAX_RETRY_DELAY = 5000; // 5 seconds
 
-// Utility to wait between retries
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
+// Create axios instance with default config
 export const api = axios.create({
   baseURL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000,
+  timeoutErrorMessage: 'Request timed out - the server might be starting up, please try again',
 });
 
-// Request interceptor to add auth token and validate
-api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    // Add the authorization header to all requests if a token exists
-    if (!config.headers) {
-      config.headers = new AxiosHeaders();
+// Configure tokenApi similarly
+tokenApi.defaults.baseURL = baseURL;
+tokenApi.defaults.headers.common['Content-Type'] = 'application/json';
+tokenApi.defaults.timeout = 30000;
+tokenApi.defaults.timeoutErrorMessage = 'Request timed out - the server might be starting up, please try again';
+
+// Utility to calculate exponential backoff delay
+const getRetryDelay = (retryCount: number): number => {
+  const delay = Math.min(RETRY_DELAY * Math.pow(2, retryCount), MAX_RETRY_DELAY);
+  return delay + Math.random() * 100; // Add jitter
+};
+
+// Utility to get user context
+const getUserContext = (): string | undefined => {
+  try {
+    const userJson = localStorage.getItem(USER_STORAGE_KEY);
+    if (userJson) {
+      const user = JSON.parse(userJson) as BackendUser;
+      return user.uid;
+    }
+  } catch {
+    return undefined;
+  }
+};
+
+// Request interceptor for auth
+const requestInterceptor = (config: RequestConfigWithRetry) => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);  if (token) {
+    // Ensure headers exist and are the correct type
+    if (!config.headers || !(config.headers instanceof axios.AxiosHeaders)) {
+      config.headers = new axios.AxiosHeaders();
     }
     config.headers.set('Authorization', `Bearer ${token}`);
   }
   
-  logger.debug('API Request', { 
-    url: config.url, 
-    method: config.method 
-  });
+  // Save token for potential retries
+  if (token && !config._originalToken) {
+    config._originalToken = token;
+  }
+  
   return config;
+};
+
+api.interceptors.request.use(requestInterceptor, (error) => {
+  logger.error('Request interceptor error:', { 
+    error, 
+    userId: getUserContext(),
+    path: error.config?.url 
+  });
+  return Promise.reject(error);
 });
 
-// Response interceptor to handle errors and retries
-api.interceptors.response.use(
-  (response) => {
-    logger.debug('API Response', { 
-      url: response.config.url, 
-      status: response.status 
-    });
-    return response;
-  },
-  async (error) => {
-    // Ensure error is AxiosError
-    if (!axios.isAxiosError(error)) {
-      return Promise.reject(error);
-    }
+tokenApi.interceptors.request.use(requestInterceptor, (error) => {
+  logger.error('Request interceptor error (tokenApi):', { error, userId: getUserContext() });
+  return Promise.reject(error);
+});
 
-    const config = error.config;
-    if (!config) return Promise.reject(error);
-    
-    // Add retry count to config if it doesn't exist
-    const retryCount = (config as { retryCount?: number }).retryCount || 0;
-    
-    // Log the error with context
-    logger.error('API Request Failed', {
-      url: config.url,
-      method: config.method,
-      status: error.response?.status,
-      retryCount: retryCount,
-      errorMessage: error.message,
-      errorResponse: error.response?.data
-    });
-
-    // Only retry on network errors or 5xx errors, and if not a 401 error (handled separately)
-    const shouldRetry = (
-      !error.response ||
-      (error.response.status >= 500 && error.response.status <= 599)
-    ) && retryCount < MAX_RETRIES && error.response?.status !== 401;
-
-    if (shouldRetry) {
-      (config as any).retryCount = retryCount + 1;
-      
-      logger.info('Retrying request', {
-        url: config.url,
-        method: config.method,
-        retryCount: (config as any).retryCount,
-      });
-      
-      // Wait before retrying
-      await wait(RETRY_DELAY * Math.pow(2, retryCount));
-      return api(config);
-    }
-    
-    // Handle specific error cases
-    if (error.response) {
-      // Handle specific error cases
-      switch (error.response.status) {
-        case 401:
-          // Unauthorized - attempt to refresh token
-          try {
-            const authService = (await import('./../services/auth')).authService;
-            const refreshToken = localStorage.getItem('refreshToken');
-            if (!refreshToken) throw new Error('No refresh token available');
-            await authService.refreshToken(refreshToken);
-            // Retry the original request with the new token
-            const newToken = localStorage.getItem('token');
-            if (config.headers) {
-              config.headers.set('Authorization', `Bearer ${newToken}`);
-            }
-            // Ensure retryCount is reset for the retried request after token refresh
-            (config as any).retryCount = 0; // Reset retry count for the new attempt
-            return api(config);
-          } catch (refreshError) {
-            // If refresh fails, clear token and redirect to login
-            localStorage.removeItem('token');
-            // clearTokenValidation(token); // This function is no longer needed here
-            window.location.href = '/login';
-            return Promise.reject(refreshError);
-          }
-        case 403:          // Forbidden
-          toast.error('Access Denied', {
-            description: 'You do not have permission to perform this action.'
-          });
-          break;
-        case 404:
-          // Not Found
-          toast.error('Not Found', {
-            description: 'The requested resource was not found.'
-          });
-          break;
-        case 422:
-          // Validation Error
-          toast.error('Validation Error', {
-            description: error.response.data.message || 'Please check your input.'
-          });
-          break;
-        case 500:
-          // Server Error
-          toast.error('Server Error', {
-            description: 'An unexpected error occurred. Please try again later.'
-          });
-          break;
-        default:
-          toast.error('Error', {
-            description: error.response.data.message || 'An error occurred.'
-          });
-      }
-    } else if (error.request) {
-      // Network Error
-      toast.error('Network Error', {
-        description: 'Please check your internet connection.'
-      });
-    }
+// Response interceptor for auth and retries
+const responseInterceptor = async (error: AxiosError) => {
+  const originalRequest = error.config as RequestConfigWithRetry;
+  if (!originalRequest || originalRequest.skipAuthRetry) {
     return Promise.reject(error);
   }
+
+  // Only retry on specific status codes
+  if (error.response?.status === 401 && !originalRequest._retry && originalRequest._originalToken) {
+    originalRequest._retry = true;
+    originalRequest.skipAuthRetry = true; // Prevent infinite retry loop
+    
+    try {
+      // Try to refresh token
+      const newToken = await refreshAuthToken(originalRequest._originalToken);
+      if (newToken) {
+        // Update token in localStorage and headers
+        localStorage.setItem(AUTH_TOKEN_KEY, newToken);
+        api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return api(originalRequest);
+      }
+    } catch (refreshError) {
+      logger.error('Token refresh failed:', { 
+        error: refreshError,
+        userId: getUserContext(),
+        path: originalRequest.url
+      });
+    }
+  }
+
+  // Handle network errors with retry
+  if (
+    (!error.response || error.code === 'ECONNABORTED') && 
+    originalRequest._retryCount < MAX_RETRIES
+  ) {
+    originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
+    const delay = getRetryDelay(originalRequest._retryCount);
+    
+    logger.info(`Retrying request (${originalRequest._retryCount}/${MAX_RETRIES}) after ${delay}ms`, {
+      url: originalRequest.url,
+      method: originalRequest.method,
+      retryCount: originalRequest._retryCount
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, delay));
+    return api(originalRequest);
+  }
+
+  return Promise.reject(error);
+};
+
+api.interceptors.response.use(
+  (response) => response,
+  responseInterceptor
 );
+tokenApi.interceptors.response.use((response) => response, responseInterceptor);
+
+export default api;

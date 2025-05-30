@@ -1,5 +1,9 @@
+import { api } from '../lib/api';
+import { logger } from '../lib/logger';
 import { Order } from './orders';
-import { getAuthHeaders } from './auth';
+import { AxiosError } from 'axios';
+import { AUTH_TOKEN_KEY } from '../lib/tokenUtils';
+import type { GetOrdersResponse } from '../types/api';
 
 const API_VERSION = '/api';
 
@@ -78,215 +82,148 @@ export interface PaymentMethodData {
   paypalEmail?: string;
 }
 
-export interface OrderHistoryResponse {
-  orders: Order[];
-  total: number;
-  page: number;
-  limit: number;
+export interface OrderItemResponse {
+  // Define the structure of order item response here
 }
 
-export const profileService = {  
-  async getProfile(): Promise<UserProfile | null> {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      return null;
-    }
+export interface OrderHistoryResponse {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  items: OrderItemResponse[];
+}
 
+export interface ApiErrorResponse {
+  message: string;
+  code?: string;
+}
+
+export class ProfileServiceError extends Error {
+  constructor(
+    message: string,
+    public status?: number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = 'ProfileServiceError';
+  }
+}
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  return {
+    Authorization: token ? `Bearer ${token}` : '',
+    'Content-Type': 'application/json',
+  };
+};
+
+const handleApiError = (error: unknown, operation: string): never => {
+  const axiosError = error as AxiosError<ApiErrorResponse>;
+  
+  logger.error(`Failed to ${operation}:`, {
+    error: axiosError.message,
+    status: axiosError.response?.status,
+    data: axiosError.response?.data
+  });
+
+  // Handle authentication errors
+  if (axiosError.response?.status === 401) {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.location.href = '/login';
+    throw new ProfileServiceError('Authentication required', 401);
+  }
+
+  // Handle other errors
+  throw new ProfileServiceError(
+    axiosError.response?.data?.message || 'An unexpected error occurred',
+    axiosError.response?.status,
+    axiosError.response?.data?.code
+  );
+};
+
+export const profileService = {
+  async getProfile(): Promise<UserProfile> {
     try {
-      const response = await fetch(`${API_VERSION}/profile`, {
-        method: 'GET',
+      const response = await api.get(`${API_VERSION}/profile`, {
         headers: getAuthHeaders(),
-        credentials: 'include'
+        timeout: 30000, // 30 second timeout for initial load
       });
-
-      if (response.status === 401) {
-        // Clear invalid tokens
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-        return null;
+      
+      if (!response.data) {
+        throw new ProfileServiceError('Invalid profile data received');
       }
 
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        if (contentType?.includes('text/html')) {
-          throw new Error('Server error: Unable to connect to the service');
+      return response.data;
+    } catch (error: any) {
+      if (error instanceof AxiosError) {
+        if (error.response?.status === 401) {
+          throw new ProfileServiceError('Authentication required', 401);
         }
-        const error = await response.json()
-          .catch(() => ({ message: 'Failed to fetch profile' }));
-        throw new Error(error.message || 'Failed to fetch profile');
+        
+        logger.error('Failed to fetch profile:', { 
+          error: error.message,
+          status: error.response?.status,
+          data: error.response?.data 
+        });
+        
+        throw new ProfileServiceError(
+          error.response?.data?.message || 'Failed to fetch profile',
+          error.response?.status
+        );
       }
-
-      return response.json();
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('Authentication required')) {
-        return null;
-      }
-      throw error;
+      
+      throw new ProfileServiceError('An unexpected error occurred');
     }
   },
 
-  async updateProfile(data: UpdateProfileData): Promise<UserProfile> {
-    const response = await fetch(`${API_VERSION}/profile`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to update profile' }));
-      throw new Error(error.message || 'Failed to update profile');
-    }
-
-    return response.json();
-  },
-
-  async addAddress(data: AddressData): Promise<UserProfile> {
-    const response = await fetch(`${API_VERSION}/profile/addresses`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to add address' }));
-      throw new Error(error.message || 'Failed to add address');
-    }
-
-    return response.json();
-  },
-
-  async updateAddress(addressId: string, data: AddressData): Promise<UserProfile> {
-    const response = await fetch(`${API_VERSION}/profile/addresses/${addressId}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to update address' }));
-      throw new Error(error.message || 'Failed to update address');
-    }
-
-    return response.json();
-  },
-
-  async deleteAddress(addressId: string): Promise<UserProfile> {
-    const response = await fetch(`${API_VERSION}/profile/addresses/${addressId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to delete address' }));
-      throw new Error(error.message || 'Failed to delete address');
-    }
-
-    return response.json();
-  },
-
-  async addPaymentMethod(data: PaymentMethodData): Promise<UserProfile> {
-    const response = await fetch(`${API_VERSION}/profile/payment-methods`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(data),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to add payment method' }));
-      throw new Error(error.message || 'Failed to add payment method');
-    }
-
-    return response.json();
-  },
-
-  async deletePaymentMethod(paymentMethodId: string): Promise<UserProfile> {
-    const response = await fetch(`${API_VERSION}/profile/payment-methods/${paymentMethodId}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders(),
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType?.includes('text/html')) {
-        throw new Error('Server error: Unable to connect to the service');
-      }
-      const error = await response.json()
-        .catch(() => ({ message: 'Failed to delete payment method' }));
-      throw new Error(error.message || 'Failed to delete payment method');
-    }
-
-    return response.json();
-  },
-
-  async getOrders(page: number = 1, pageSize: number = 10): Promise<OrderHistoryResponse | null> {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      return null;
-    }
-
+  updateProfile: async (data: UpdateProfileData): Promise<UserProfile> => {
     try {
-      const url = `${API_VERSION}/profile/orders?page=${page}&pageSize=${pageSize}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-        credentials: 'include'
-      });
-
-      if (response.status === 401) {
-        // Clear invalid tokens
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-        return null;
-      }
-
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        if (contentType?.includes('text/html')) {
-          throw new Error('Server error: Unable to connect to the service');
-        }
-        const error = await response.json()
-          .catch(() => ({ message: 'Failed to fetch orders' }));
-        throw new Error(error.message || 'Failed to fetch orders');
-      }
-
-      return response.json();
+      const response = await api.put<UserProfile>(`${API_VERSION}/profile`, data);
+      return response.data;
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Authentication required')) {
-        return null;
-      }
-      console.error('Failed to fetch orders:', error);
-      throw error;
+      return handleApiError(error, 'update profile');
+    }
+  },
+
+  getOrders: async (page: number = 1, pageSize: number = 10): Promise<GetOrdersResponse> => {
+    try {
+      const response = await api.get<GetOrdersResponse>(`${API_VERSION}/profile/orders`, {
+        params: {
+          page,
+          pageSize
+        }
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error, 'fetch orders');
+    }
+  },
+
+  updateAddress: async (addressId: string, data: Partial<Address>): Promise<UserProfile> => {
+    try {
+      const response = await api.put<UserProfile>(`${API_VERSION}/profile/addresses/${addressId}`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error, 'update address');
+    }
+  },
+
+  addAddress: async (data: Omit<Address, 'id'>): Promise<UserProfile> => {
+    try {
+      const response = await api.post<UserProfile>(`${API_VERSION}/profile/addresses`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error, 'add address');
+    }
+  },
+
+  deleteAddress: async (addressId: string): Promise<UserProfile> => {
+    try {
+      const response = await api.delete<UserProfile>(`${API_VERSION}/profile/addresses/${addressId}`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error, 'delete address');
     }
   }
 };

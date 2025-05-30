@@ -1,18 +1,18 @@
 import React from 'react';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
-import { toast } from 'sonner'; // Import toast from sonner
+import { toast } from 'sonner'; 
 import CartItem from '../components/CartItem';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
 import { ShoppingBag, ShoppingCart, LogIn } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
-export function CartPage() {
-  const { cartItems, getCartTotal } = useCart();
+export function CartPage() {  
+  const { items = [], totalPrice = 0, isLoading } = useCart();
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const subtotal = getCartTotal();
+  const subtotal = totalPrice;
   const shipping = subtotal > 0 ? 15.00 : 0;
   const tax = subtotal * 0.08;
   const total = subtotal + shipping + tax;
@@ -29,10 +29,13 @@ export function CartPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
+    <div className="container mx-auto px-4 py-8">      <h1 className="text-3xl font-bold mb-8">Your Cart</h1>
       
-      {cartItems.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : items.length === 0 ? (
         <div className="text-center py-16 space-y-4">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 mb-4">
             <ShoppingBag className="h-8 w-8 text-gray-500" />
@@ -51,11 +54,11 @@ export function CartPage() {
           <div className="lg:col-span-2">
             <div className="bg-white rounded-lg shadow-sm border">
               <div className="p-6">
-                <h2 className="font-semibold text-lg mb-4">Cart Items ({cartItems.length})</h2>
+                <h2 className="font-semibold text-lg mb-4">Cart Items ({items.length})</h2>
                 <Separator />
                 <div className="divide-y">
-                  {cartItems.map((item) => (
-                    <CartItem key={item.id} item={item} />
+                  {items.map((item) => (
+                    <CartItem key={item.id} item={item} /> 
                   ))}
                 </div>
               </div>
@@ -66,19 +69,18 @@ export function CartPage() {
             <div className="bg-white rounded-lg shadow-sm border p-6 sticky top-24">
               <h2 className="font-semibold text-lg mb-4">Order Summary</h2>
               <Separator className="mb-4" />
-              
-              <div className="space-y-2">
+                <div className="space-y-2">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
+                  <span>${(subtotal || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Shipping</span>
-                  <span>${shipping.toFixed(2)}</span>
+                  <span>${(shipping || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Tax</span>
-                  <span>${tax.toFixed(2)}</span>
+                  <span>${(tax || 0).toFixed(2)}</span>
                 </div>
               </div>
               
@@ -86,7 +88,7 @@ export function CartPage() {
               
               <div className="flex justify-between font-semibold text-lg">
                 <span>Total</span>
-                <span>${total.toFixed(2)}</span>
+                <span>${(total || 0).toFixed(2)}</span>
               </div>
               
               <Button 

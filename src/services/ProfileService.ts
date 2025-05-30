@@ -1,186 +1,257 @@
+import { api } from '@/lib/api';
+import { AUTH_TOKEN_KEY, REFRESH_TOKEN_KEY } from '@/lib/tokenUtils';
+import type { AxiosRequestConfig } from 'axios';
 import type { 
   Profile, 
-  PaginatedOrders, 
   AddressInput, 
   PaymentMethodInput, 
-  UpdateProfileData,
-  Wishlist,
-  WishlistItem 
-} from '@/types/models';
+  UpdateProfileData,  
+} from '@/types/profile';
 
-import { api } from '@/lib/api';
+interface CustomRequestConfig extends AxiosRequestConfig {
+  skipRetry?: boolean;
+}
+import type { Wishlist, WishlistItem } from '@/types/models';
+import type { PaginatedResponse } from '@/types/api';
+import type { Order } from '@/types/orders';
+import { logger } from '@/lib/logger';
+import { toast } from 'sonner';
+
+type PaginatedOrders = PaginatedResponse<Order>;
 
 export const isAuthenticated = () => {
-  return !!localStorage.getItem('token');
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  return !!token;
 };
 
-// Helper function to handle API responses
-const handleResponse = async <T>(response: Response): Promise<T> => {
-  const contentType = response.headers.get('content-type');
-    if (response.status === 401) {
-    // Clear invalid token and user data
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    // Notify about unauthorized access
-    window.dispatchEvent(new CustomEvent('auth:required'));
-    throw new Error('Authentication required');
+export class ProfileServiceError extends Error {
+  constructor(
+    message: string,
+    public statusCode?: number,
+    public errorCode?: string
+  ) {
+    super(message);
+    this.name = 'ProfileServiceError';
   }
+}
 
-  if (!response.ok) {
-    if (contentType?.includes('application/json')) {
-      const error = await response.json();
-      throw new Error(error.message || error.error?.message || `Request failed with status ${response.status}`);
+const FALLBACK_PROFILE: Profile = {
+  id: 'temporary',
+  email: '',
+  firstName: '',
+  lastName: '',
+  role: 'user',
+  isEmailVerified: false,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  preferences: {
+    notifications: false,
+    newsletter: false,
+    language: 'en',
+    currency: 'USD',
+    theme: 'system'
+  }
+};
+
+class ProfileService {
+  private static instance: ProfileService;
+
+  public static getInstance(): ProfileService {
+    if (!ProfileService.instance) {
+      ProfileService.instance = new ProfileService();
     }
-    throw new Error(`Request failed with status ${response.status}`);
+    return ProfileService.instance;
   }
 
-  if (!contentType?.includes('application/json')) {
-    throw new Error('Invalid response format from server');
+  private constructor() {} // Make constructor private for singleton
+
+  private getAuthHeaders() {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    return {
+      Authorization: token ? `Bearer ${token}` : '',
+      'Content-Type': 'application/json',
+    };
   }
 
-  return response.json();
-};
-
-export const profileService = {  
-  async getProfile(): Promise<Profile | null> {
+  async getProfile(): Promise<Profile> {
     if (!isAuthenticated()) {
-      return null;
+      throw new ProfileServiceError('Not authenticated', 401);
     }
 
     try {
-      const response = await api.get('/api/profile');
-      return response.data;
-    } catch (error) {
-      console.error('Failed to fetch profile:', error);
-      if (error?.response?.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('user');
-        window.dispatchEvent(new CustomEvent('auth:required'));
-        return null;
+      const response = await api.get('/api/profile', {
+        headers: this.getAuthHeaders(),
+        skipRetry: true // Prevent retry loop
+      } as CustomRequestConfig);
+      
+      if (!response.data) {
+        throw new ProfileServiceError('Invalid profile data received');
       }
-      throw error;
+
+      return {
+        ...FALLBACK_PROFILE,
+        ...response.data
+      };
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        // Clear invalid session
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+        throw new ProfileServiceError('Session expired', 401);
+      }
+      
+      logger.error('Failed to fetch profile:', { error });
+      throw new ProfileServiceError(
+        error.response?.data?.message || 'Failed to fetch profile',
+        error.response?.status
+      );
     }
-  },
+  }
 
   async updateProfile(data: UpdateProfileData): Promise<Profile> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
-      const response = await api.patch('/users/profile', data);
+      const response = await api.patch('/api/profile', data, {
+        headers: this.getAuthHeaders()
+      });
       return response.data;
-    } catch (error) {
-      console.error('Failed to update profile:', error);
-      throw error;
+    } catch (error: any) {
+      logger.error('Failed to update profile:', error);
+      
+      if (error?.response?.status === 401) {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+        localStorage.removeItem('user');
+        window.dispatchEvent(new CustomEvent('auth:required'));
+        throw new ProfileServiceError('Authentication required', 401);
+      }
+      
+      throw new ProfileServiceError(
+        error.response?.data?.message || 'Failed to update profile',
+        error.response?.status
+      );
     }
-  },
+  }
 
   async addAddress(address: AddressInput): Promise<Profile> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
-      const response = await api.post('/users/addresses', address);
+      const response = await api.post('/users/addresses', address, {
+        headers: this.getAuthHeaders()
+      });
       return response.data;
     } catch (error) {
       console.error('Failed to add address:', error);
       throw error;
     }
-  },
+  }
 
   async updateAddress(id: string, address: AddressInput): Promise<Profile> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
-      const response = await api.patch(`/users/addresses/${id}`, address);
+      const response = await api.patch(`/users/addresses/${id}`, address, {
+        headers: this.getAuthHeaders()
+      });
       return response.data;
     } catch (error) {
       console.error('Failed to update address:', error);
       throw error;
     }
-  },
+  }
 
   async deleteAddress(id: string): Promise<Profile> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
-      const response = await api.delete(`/users/addresses/${id}`);
+      const response = await api.delete(`/users/addresses/${id}`, {
+        headers: this.getAuthHeaders()
+      });
       return response.data;
     } catch (error) {
       console.error('Failed to delete address:', error);
       throw error;
     }
-  },
+  }
 
   async addPaymentMethod(paymentMethod: PaymentMethodInput): Promise<Profile> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
-      const response = await api.post('/users/payment-methods', paymentMethod);
+      const response = await api.post('/users/payment-methods', paymentMethod, {
+        headers: this.getAuthHeaders()
+      });
       return response.data;
     } catch (error) {
       console.error('Failed to add payment method:', error);
       throw error;
     }
-  },
+  }
 
   async deletePaymentMethod(id: string): Promise<Profile> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
-      const response = await api.delete(`/users/payment-methods/${id}`);
+      const response = await api.delete(`/users/payment-methods/${id}`, {
+        headers: this.getAuthHeaders()
+      });
       return response.data;
     } catch (error) {
       console.error('Failed to delete payment method:', error);
       throw error;
     }
-  },
-  async getOrders(page: number = 1, pageSize: number = 10): Promise<PaginatedOrders> {
-    if (!isAuthenticated()) {
-      throw new Error('Authentication required');
-    }
-
-    try {
-      const response = await api.get('/api/profile/orders', {
-        params: { page, pageSize }
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Failed to fetch orders:', error);
-      throw new Error('Failed to fetch orders');
-    }
-  },
+  }
 
   // Wishlist Management
   async getWishlist(): Promise<Wishlist> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      return {
+        id: 'local',
+        userId: 'anonymous',
+        items: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
     }
 
     try {
-      const response = await api.get<Wishlist>('/api/wishlist');
+      const response = await api.get('/api/wishlist');
       return response.data;
-    } catch (error) {
-      console.error('Failed to fetch wishlist:', error);
+    } catch (error: any) {
+      logger.error('Failed to fetch wishlist:', error);
+      
+      // Return empty wishlist for unauthorized/not found
+      if (error?.response?.status === 401 || error?.response?.status === 404) {
+        return {
+          id: 'local',
+          userId: 'anonymous',
+          items: [],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+      
       throw error;
     }
-  },
+  }
 
   async addToWishlist(productId: string): Promise<WishlistItem> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
@@ -190,11 +261,11 @@ export const profileService = {
       console.error('Failed to add item to wishlist:', error);
       throw error;
     }
-  },
+  }
 
   async removeFromWishlist(productId: string): Promise<void> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
@@ -203,11 +274,11 @@ export const profileService = {
       console.error('Failed to remove item from wishlist:', error);
       throw error;
     }
-  },
+  }
 
   async clearWishlist(): Promise<void> {
     if (!isAuthenticated()) {
-      throw new Error('Authentication required');
+      throw new ProfileServiceError('Authentication required', 401);
     }
 
     try {
@@ -217,4 +288,27 @@ export const profileService = {
       throw error;
     }
   }
-};
+
+  // Orders Management
+  async getOrders(page: number = 1, pageSize: number = 10): Promise<PaginatedOrders> {
+    if (!isAuthenticated()) {
+      return { items: [], total: 0, page: 1, pageSize, totalPages: 0 };
+    }
+
+    try {
+      const response = await api.get('/api/profile/orders', {
+        params: { page, pageSize }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch orders:', error);
+      return { items: [], total: 0, page: 1, pageSize, totalPages: 0 };
+    }
+  }
+}
+
+// Export a singleton instance
+export const profileService = ProfileService.getInstance();
+
+// Also export the class for type usage
+export type { ProfileService };

@@ -24,15 +24,14 @@ class SocketService {
   };
 
   private eventHandlers = new Map<keyof SocketEvents, Array<(...args: any[]) => void>>();
-
   constructor() {
-    this.initializeSocket();
+    // Don't initialize socket in constructor
   }
 
   private initializeSocket() {
     const token = getAuthToken();
     if (!token) {
-      logger.warn('Socket initialization attempted without auth token');
+      logger.debug('Waiting for auth token before socket initialization');
       return;
     }
 
@@ -132,20 +131,13 @@ class SocketService {
     this.socket.emit(event as string, ...args);
   }
 
-  public updateToken(token: string): void {
-    this.config.auth.token = token;
-    
-    if (this.socket?.connected) {
-      logger.debug('Updating socket authentication token');
-      this.disconnect();
-      this.initializeSocket();
-      this.connect();
+  public connect(token?: string) {
+    if (token) {
+      this.config.auth.token = token;
     }
-  }
-
-  public connect(): void {
-    if (this.socket?.connected) {
-      logger.warn('Socket already connected');
+    
+    if (!this.config.auth.token) {
+      logger.warn('Cannot connect socket without auth token');
       return;
     }
 
@@ -153,20 +145,29 @@ class SocketService {
       this.initializeSocket();
     }
 
-    this.socket?.connect();
+    if (this.socket && !this.socket.connected) {
+      this.socket.connect();
+    }
   }
 
-  public disconnect(): void {
-    if (!this.socket?.connected) {
-      logger.warn('Socket already disconnected');
-      return;
+  public disconnect() {
+    if (this.socket?.connected) {
+      logger.debug('Disconnecting socket');
+      this.socket.disconnect();
+      this.state.connected = false;
     }
-
-    this.socket?.disconnect();
   }
 
   public isConnected(): boolean {
-    return this.state.connected;
+    return this.state.connected && !!this.socket?.connected;
+  }
+
+  public updateToken(token: string) {
+    this.config.auth.token = token;
+    if (this.socket?.connected) {
+      this.disconnect();
+      this.connect();
+    }
   }
 
   public getState(): SocketState {

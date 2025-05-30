@@ -6,11 +6,10 @@ import { toast } from 'sonner';
 interface PrivateRouteProps {
   children: React.ReactNode;
   requireAuth?: boolean;
-  requireAdmin?: boolean;
 }
 
-export function RouteGuard({ children, requireAuth = true, requireAdmin = false }: PrivateRouteProps) {
-  const { isAuthenticated, user, isLoading } = useAuth();
+export function RouteGuard({ children, requireAuth = true }: PrivateRouteProps) {
+  const { isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -21,13 +20,7 @@ export function RouteGuard({ children, requireAuth = true, requireAdmin = false 
       navigate('/login', { replace: true });
       return;
     }
-
-    if (requireAdmin && !user?.isAdmin) {
-      toast.error('Access denied: Admin privileges required');
-      navigate('/', { replace: true });
-      return;
-    }
-  }, [isAuthenticated, user, isLoading, requireAuth, requireAdmin, navigate]);
+  }, [isAuthenticated, isLoading, requireAuth, navigate]);
 
   if (isLoading) {
     return (

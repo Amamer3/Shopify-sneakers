@@ -1,29 +1,32 @@
-
-import { useState, useEffect } from 'react';
-import { Product } from '../contexts/CartContext';
+import { useState, useEffect, useCallback } from 'react';
+import { type Product } from '../types/models';
 
 const STORAGE_KEY = 'recently-viewed-products';
 const MAX_ITEMS = 4;
 
 export function useRecentlyViewed() {
-  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
-
-  // Load recently viewed products from localStorage on mount
-  useEffect(() => {
-    const storedItems = localStorage.getItem(STORAGE_KEY);
-    if (storedItems) {
-      try {
-        setRecentlyViewed(JSON.parse(storedItems));
-      } catch (error) {
-        console.error('Failed to parse recently viewed products:', error);
-        localStorage.removeItem(STORAGE_KEY);
-      }
+  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>(() => {
+    // Initialize state from localStorage on mount
+    try {
+      const storedItems = localStorage.getItem(STORAGE_KEY);
+      return storedItems ? JSON.parse(storedItems) : [];
+    } catch (error) {
+      console.error('Failed to parse recently viewed products:', error);
+      localStorage.removeItem(STORAGE_KEY);
+      return [];
     }
-  }, []);
+  });
 
   // Add a product to recently viewed
-  const addToRecentlyViewed = (product: Product) => {
+  const addToRecentlyViewed = useCallback((product: Product) => {
+    if (!product) return;
+
     setRecentlyViewed(prevItems => {
+      // Skip update if product is already at the front
+      if (prevItems[0]?.id === product.id) {
+        return prevItems;
+      }
+
       // Remove the product if it already exists to avoid duplicates
       const filteredItems = prevItems.filter(item => item.id !== product.id);
       
@@ -35,7 +38,7 @@ export function useRecentlyViewed() {
       
       return updatedItems;
     });
-  };
+  }, []);
 
   return { recentlyViewed, addToRecentlyViewed };
 }

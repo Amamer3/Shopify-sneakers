@@ -17,10 +17,9 @@ import {
 } from "./ui/navigation-menu";
 import { cn } from "@/lib/utils";
 
-export const Navbar = () => {
-  const { isAuthenticated, user } = useAuth();
-  const { items: cartItems } = useCart();
-  const { wishlist } = useWishlist();
+export const Navbar = () => {  const { isAuthenticated, user } = useAuth();
+  const { items: cartItems = [], isLoading: cartLoading } = useCart();
+  const { wishlist = { items: [] }, isLoading: wishlistLoading } = useWishlist();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
@@ -198,11 +197,12 @@ export const Navbar = () => {
                     {isAuthenticated ? `Hi, ${user?.firstName || 'User'}` : "Account"}
                   </span>
                 </div>
-              </Link>              {/* Wishlist */}
+              </Link>
+              {/* Wishlist */}
               <Link to="/wishlist" className="hidden sm:flex items-center space-x-1">
                 <div className="relative">
                   <Heart className="h-6 w-6" />
-                  {wishlist && wishlist.items.length > 0 && (
+                  {!wishlistLoading && wishlist?.items?.length > 0 && (
                     <Badge 
                       variant="secondary"
                       className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0"
@@ -211,17 +211,17 @@ export const Navbar = () => {
                     </Badge>
                   )}
                 </div>
-                <span className="hidden lg:inline text-sm">Wishlist</span>
-              </Link>
-
-              {/* Cart */}
+              </Link>{/* Cart */}
               <Link to="/cart" className="flex items-center space-x-1">
                 <div className="relative">
                   <ShoppingBag className="h-6 w-6" />
-                  {cartItems.length > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-black text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {!cartLoading && cartItems.length > 0 && (
+                    <Badge 
+                      variant="destructive" 
+                      className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0"
+                    >
                       {cartItems.length}
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 <span className="hidden lg:inline text-sm">Cart</span>
